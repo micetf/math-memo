@@ -1,0 +1,11 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Vos styles personnalisés peuvent être ajoutés ici */
+@layer components {
+    .btn-primary {
+        @apply px-4 py-2 bg-brand text-white rounded hover:bg-opacity-90;
+    }
+}

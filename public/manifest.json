@@ -1,0 +1,29 @@
+{
+    "name": "MathMemo - Mémorisation des faits numériques",
+    "short_name": "MathMemo",
+    "description": "Application de mémorisation des faits numériques pour les élèves de cycle 2",
+    "theme_color": "#3b82f6",
+    "background_color": "#f9fafb",
+    "display": "standalone",
+    "orientation": "portrait",
+    "scope": "/",
+    "start_url": "/",
+    "icons": [
+        {
+            "src": "icons/icon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/icon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/icon-512x512-maskable.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
