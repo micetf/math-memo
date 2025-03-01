@@ -12,6 +12,7 @@ import Home from "./pages/Home";
 import Exercise from "./pages/Exercise";
 import Progress from "./pages/Progress";
 import Settings from "./pages/Settings";
+import Profiles from "./pages/Profiles";
 
 /**
  * Composant principal de l'application
@@ -44,6 +45,7 @@ const App = () => {
                         <Route path="/exercise" element={<Exercise />} />
                         <Route path="/progress" element={<Progress />} />
                         <Route path="/settings" element={<Settings />} />
+                        <Route path="/profiles" element={<Profiles />} />
                         {/* Rediriger les routes inconnues vers l'accueil */}
                         <Route path="*" element={<Home />} />
                     </Routes>

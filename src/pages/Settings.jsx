@@ -19,7 +19,7 @@ import { updateCache } from "../services/pwaService";
  */
 const Settings = () => {
     const navigate = useNavigate();
-    const { user, updateProfile, logout, loginAsGuest } =
+    const { user, updateProfile, logout, createProfile } =
         useContext(AuthContext);
 
     const [displayName, setDisplayName] = useState(user?.name || "");
@@ -50,14 +50,11 @@ const Settings = () => {
     const handleSaveSettings = (e) => {
         e.preventDefault();
 
-        if (!user) {
-            // Créer un compte invité si nécessaire
-            const guestUser = loginAsGuest();
-
-            if (guestUser) {
-                // Mettre à jour le profil de l'invité
-                updateProfile({
-                    name: displayName || "Invité",
+        try {
+            if (!user) {
+                // Créer un nouveau profil avec toutes les préférences
+                const newUser = createProfile({
+                    name: displayName || "Élève",
                     level: selectedLevel,
                     preferences: {
                         showTimer,
@@ -66,34 +63,59 @@ const Settings = () => {
                     },
                 });
 
-                setMessage({
-                    type: "success",
-                    text: "Paramètres enregistrés avec succès!",
+                if (newUser) {
+                    setMessage({
+                        type: "success",
+                        text: "Nouveau profil créé avec succès !",
+                    });
+                } else {
+                    setMessage({
+                        type: "error",
+                        text: "Erreur lors de la création du profil",
+                    });
+                }
+            } else {
+                // Mettre à jour le profil de l'utilisateur existant
+                const updatedUser = updateProfile({
+                    name: displayName,
+                    level: selectedLevel,
+                    preferences: {
+                        showTimer,
+                        soundEffects,
+                        darkMode,
+                    },
                 });
+
+                if (updatedUser) {
+                    setMessage({
+                        type: "success",
+                        text: "Paramètres enregistrés avec succès !",
+                    });
+                } else {
+                    setMessage({
+                        type: "error",
+                        text: "Erreur lors de la mise à jour des paramètres",
+                    });
+                }
             }
-        } else {
-            // Mettre à jour le profil de l'utilisateur existant
-            updateProfile({
-                name: displayName,
-                level: selectedLevel,
-                preferences: {
-                    showTimer,
-                    soundEffects,
-                    darkMode,
-                },
-            });
 
+            // Appliquer le mode sombre si activé
+            if (darkMode) {
+                document.documentElement.classList.add("dark");
+            } else {
+                document.documentElement.classList.remove("dark");
+            }
+        } catch (error) {
+            console.error(
+                "Erreur lors de la sauvegarde des paramètres:",
+                error
+            );
             setMessage({
-                type: "success",
-                text: "Paramètres enregistrés avec succès!",
+                type: "error",
+                text:
+                    "Une erreur est survenue : " +
+                    (error.message || "Erreur inconnue"),
             });
-        }
-
-        // Appliquer le mode sombre si activé
-        if (darkMode) {
-            document.documentElement.classList.add("dark");
-        } else {
-            document.documentElement.classList.remove("dark");
         }
 
         // Effacer le message après 3 secondes
@@ -412,6 +434,31 @@ const Settings = () => {
                                         <p className="text-xs text-gray-600">
                                             Télécharger la dernière version
                                             disponible
+                                        </p>
+                                    </div>
+                                </div>
+                                <Icon
+                                    name="arrowRight"
+                                    className="text-gray-500"
+                                />
+                            </div>
+
+                            <div
+                                className="p-3 rounded-lg bg-indigo-50 flex items-center justify-between cursor-pointer hover:bg-indigo-100"
+                                onClick={() => navigate("/profiles")}
+                            >
+                                <div className="flex items-center">
+                                    <Icon
+                                        name="settings"
+                                        className="mr-3 text-indigo-600"
+                                    />
+                                    <div>
+                                        <h3 className="font-medium">
+                                            Gérer les profils
+                                        </h3>
+                                        <p className="text-xs text-gray-600">
+                                            Créer, sélectionner ou supprimer des
+                                            profils
                                         </p>
                                     </div>
                                 </div>

@@ -101,16 +101,32 @@ const Home = () => {
      * @param {string} level - Niveau de difficulté
      */
     const handleSelectLevel = (level) => {
-        if (level === currentLevel) return;
+        console.log(`Selecting level: ${level} (current: ${currentLevel})`);
 
+        // Ne rien faire si on clique sur le niveau déjà sélectionné
+        if (level === currentLevel) {
+            console.log("Level already selected, no change needed");
+            return;
+        }
+
+        // Changer le niveau dans le contexte de progression
         changeLevel(level);
 
         // Mettre à jour le profil de l'utilisateur si connecté
         if (user) {
-            updateProfile({
+            console.log(`Updating user profile with new level: ${level}`);
+            const updatedUser = updateProfile({
                 level,
             });
+            console.log("Updated user:", updatedUser);
+        } else {
+            console.log("No user logged in, level change will not persist");
         }
+
+        // Force rerender to ensure the UI updates correctly
+        setTimeout(() => {
+            console.log("Current level after change:", currentLevel);
+        }, 100);
     };
 
     // Si l'utilisateur est connecté, afficher des statistiques et actions personnalisées

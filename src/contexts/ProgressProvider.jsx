@@ -1,145 +1,74 @@
 /**
- * @file ProgressContext.jsx
- * @description Contexte pour gérer la progression des élèves
+ * @file ProgressProvider.jsx
+ * @description Contexte pour gérer la progression des élèves - version d'urgence pour éviter les boucles
  */
 
-import { useState, useEffect, useContext } from "react";
+import { useState, useContext } from "react";
 import PropTypes from "prop-types";
 import AuthContext from "./AuthContext";
-import { useSpacedRepetition } from "../hooks/useSpacedRepetition";
 import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../data/progressions";
 import ProgressContext from "./ProgressContext";
 
 /**
- * Fournisseur de contexte pour gérer la progression de l'élève
+ * Fournisseur de contexte pour gérer la progression de l'élève - version simplifiée
  * @param {Object} props - Propriétés du composant
  * @param {React.ReactNode} props.children - Composants enfants
  * @returns {JSX.Element} Fournisseur ProgressContext
  */
 export const ProgressProvider = ({ children }) => {
     const { user } = useContext(AuthContext);
-    const [currentLevel, setCurrentLevel] = useState(DIFFICULTY_LEVELS.CP);
+    const [currentLevel, setCurrentLevel] = useState(
+        user?.level || DIFFICULTY_LEVELS.CP
+    );
     const [activePeriod, setActivePeriod] = useState(null);
     const [activeUnit, setActiveUnit] = useState(null);
 
-    // Initialiser le système de répétition espacée avec l'ID de l'utilisateur
-    const spacedRepetition = useSpacedRepetition(
-        user?.id || "guest",
-        currentLevel
-    );
+    // Version simplifiée pour éviter les boucles infinies
+    const mockFacts = {
+        "mock-fact-1": {
+            id: "mock-fact-1",
+            level: 0,
+            successCount: 0,
+        },
+    };
 
-    // S'assurer que les faits numériques sont chargés
-    useEffect(() => {
-        if (user) {
-            // Charger les faits de la progression actuelle
-            const progression = PROGRESSIONS[currentLevel];
+    const mockFactsToReview = [];
 
-            if (progression) {
-                // Par défaut, charger la première période ou celle active
-                const period = activePeriod || progression.periods[0];
-                setActivePeriod(period);
-
-                // Par défaut, charger la première unité ou celle active
-                const unit = activeUnit || period.units[0];
-                setActiveUnit(unit);
-
-                // Ajouter tous les faits de l'unité au système de répétition espacée
-                spacedRepetition.addMultipleFacts(unit.facts);
-            }
-        }
-    }, [user, currentLevel, activePeriod, activeUnit, spacedRepetition]);
-
-    /**
-     * Change le niveau de difficulté actuel
-     * @param {string} level - Niveau de difficulté (CP, CE1, CE2)
-     */
+    // Fonctions simplifiées
     const changeLevel = (level) => {
         if (PROGRESSIONS[level]) {
             setCurrentLevel(level);
-            setActivePeriod(null);
-            setActiveUnit(null);
         }
     };
 
-    /**
-     * Change la période active
-     * @param {Object} period - Période à activer
-     */
     const changePeriod = (period) => {
-        const progression = PROGRESSIONS[currentLevel];
-        const validPeriod = progression.periods.find((p) => p.id === period.id);
-
-        if (validPeriod) {
-            setActivePeriod(validPeriod);
-            setActiveUnit(validPeriod.units[0]);
-        }
+        setActivePeriod(period);
     };
 
-    /**
-     * Change l'unité active
-     * @param {Object} unit - Unité à activer
-     */
     const changeUnit = (unit) => {
-        if (activePeriod) {
-            const validUnit = activePeriod.units.find((u) => u.id === unit.id);
-
-            if (validUnit) {
-                setActiveUnit(validUnit);
-                // Ajouter les faits de cette unité au système de répétition espacée
-                spacedRepetition.addMultipleFacts(validUnit.facts);
-            }
-        }
+        setActiveUnit(unit);
     };
 
-    /**
-     * Récupère les données de progression pour un fait spécifique
-     * @param {string} factId - Identifiant du fait
-     * @returns {Object|null} Données de progression ou null
-     */
-    const getFactProgress = (factId) => {
-        return spacedRepetition.facts[factId] || null;
-    };
+    const getFactProgress = () => null;
 
-    /**
-     * Récupère tous les faits avec leur progression pour l'unité active
-     * @returns {Array} Liste de faits avec leur progression
-     */
-    const getFactsWithProgress = () => {
-        if (!activeUnit) return [];
+    const getFactsWithProgress = () => [];
 
-        return activeUnit.facts.map((fact) => ({
-            ...fact,
-            progress: getFactProgress(fact.id),
-        }));
-    };
+    const getOverallProgress = () => ({
+        totalFacts: 0,
+        factsByLevel: { 0: 0, 1: 0, 2: 0, 3: 0 },
+        masteredPercentage: 0,
+        progressionCoverage: 0,
+    });
 
-    /**
-     * Récupère les statistiques globales de progression
-     * @returns {Object} Statistiques de progression
-     */
-    const getOverallProgress = () => {
-        const stats = spacedRepetition.getProgressStats();
+    const addFact = () => {};
 
-        // Calculer le nombre total de faits dans la progression courante
-        let totalFactsInProgression = 0;
-        const progression = PROGRESSIONS[currentLevel];
+    const addMultipleFacts = () => {};
 
-        progression.periods.forEach((period) => {
-            period.units.forEach((unit) => {
-                totalFactsInProgression += unit.facts.length;
-            });
-        });
+    const updateFactProgress = () => {};
 
-        return {
-            ...stats,
-            totalFactsInProgression,
-            progressionCoverage: Math.round(
-                (stats.totalFacts / totalFactsInProgression) * 100
-            ),
-        };
-    };
+    const getFactsToReviewToday = () => [];
 
-    // Valeur du contexte à exposer
+    // Valeur du contexte simplifiée
     const contextValue = {
         currentLevel,
         activePeriod,
@@ -151,12 +80,12 @@ export const ProgressProvider = ({ children }) => {
         getFactsWithProgress,
         getOverallProgress,
         // Fonctions du système de répétition espacée
-        facts: spacedRepetition.facts,
-        factsToReview: spacedRepetition.factsToReview,
-        addFact: spacedRepetition.addFact,
-        addMultipleFacts: spacedRepetition.addMultipleFacts,
-        updateFactProgress: spacedRepetition.updateFactProgress,
-        getFactsToReviewToday: spacedRepetition.getFactsToReviewToday,
+        facts: mockFacts,
+        factsToReview: mockFactsToReview,
+        addFact,
+        addMultipleFacts,
+        updateFactProgress,
+        getFactsToReviewToday,
     };
 
     return (

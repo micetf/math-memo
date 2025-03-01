@@ -46,106 +46,162 @@ const SUCCESS_THRESHOLD = {
  */
 export const useSpacedRepetition = (userId, progressionId) => {
     // Récupération des données stockées localement
-    const storageKey = `spaced-rep-${userId}-${progressionId}`;
+    const storageKey = `spaced-rep-${userId || "guest"}-${
+        progressionId || "default"
+    }`;
     const [facts, setFacts] = useLocalStorage(storageKey, {});
 
     // État pour suivre les faits à réviser aujourd'hui
     const [factsToReview, setFactsToReview] = useState([]);
+
+    // Debug
+    useEffect(() => {
+        console.log("SpacedRepetition initialized with key:", storageKey);
+        console.log("Current facts in storage:", facts);
+    }, [storageKey, facts]);
 
     /**
      * Crée ou met à jour un fait numérique dans la base de faits
      * @param {string} factId - Identifiant unique du fait (ex: "add-2-3")
      * @param {Object} factData - Données associées au fait
      */
-    const addFact = (factId, factData) => {
-        if (!facts[factId]) {
-            setFacts((prev) => ({
-                ...prev,
-                [factId]: {
-                    id: factId,
-                    level: KNOWLEDGE_LEVELS.NEW,
-                    successCount: 0,
-                    lastReviewed: new Date().toISOString(),
-                    nextReview: new Date().toISOString(),
-                    history: [],
-                    ...factData,
-                },
-            }));
-        }
-    };
+    const addFact = useCallback(
+        (factId, factData) => {
+            if (!factId) {
+                console.error("Cannot add fact: factId is required");
+                return;
+            }
+
+            setFacts((prev) => {
+                // Si le fait existe déjà, ne pas l'écraser
+                if (prev[factId]) {
+                    return prev;
+                }
+
+                return {
+                    ...prev,
+                    [factId]: {
+                        id: factId,
+                        level: KNOWLEDGE_LEVELS.NEW,
+                        successCount: 0,
+                        lastReviewed: new Date().toISOString(),
+                        nextReview: new Date().toISOString(),
+                        history: [],
+                        ...factData,
+                    },
+                };
+            });
+        },
+        [setFacts]
+    );
 
     /**
      * Ajoute plusieurs faits numériques en même temps
      * @param {Array<Object>} factsArray - Tableau d'objets de faits
      */
-    const addMultipleFacts = (factsArray) => {
-        const newFacts = { ...facts };
-
-        factsArray.forEach((fact) => {
-            const factId = fact.id;
-            if (!newFacts[factId]) {
-                newFacts[factId] = {
-                    id: factId,
-                    level: KNOWLEDGE_LEVELS.NEW,
-                    successCount: 0,
-                    lastReviewed: new Date().toISOString(),
-                    nextReview: new Date().toISOString(),
-                    history: [],
-                    ...fact,
-                };
+    const addMultipleFacts = useCallback(
+        (factsArray) => {
+            if (!Array.isArray(factsArray) || factsArray.length === 0) {
+                console.error(
+                    "Cannot add facts: factsArray must be a non-empty array"
+                );
+                return;
             }
-        });
 
-        setFacts(newFacts);
-    };
+            setFacts((prev) => {
+                const newFacts = { ...prev };
+
+                factsArray.forEach((fact) => {
+                    if (!fact || !fact.id) return;
+
+                    const factId = fact.id;
+                    if (!newFacts[factId]) {
+                        newFacts[factId] = {
+                            id: factId,
+                            level: KNOWLEDGE_LEVELS.NEW,
+                            successCount: 0,
+                            lastReviewed: new Date().toISOString(),
+                            nextReview: new Date().toISOString(),
+                            history: [],
+                            ...fact,
+                        };
+                    }
+                });
+
+                return newFacts;
+            });
+        },
+        [setFacts]
+    );
 
     /**
      * Met à jour un fait après une réponse de l'utilisateur
      * @param {string} factId - Identifiant du fait
      * @param {boolean} isCorrect - Si la réponse était correcte
+     * @param {number} responseTime - Temps de réponse en secondes (optionnel)
      */
-    const updateFactProgress = (factId, isCorrect) => {
-        if (!facts[factId]) return;
-
-        const fact = facts[factId];
-        let newLevel = fact.level;
-        let successCount = isCorrect ? fact.successCount + 1 : 0;
-
-        // Mise à jour du niveau en fonction de la réponse
-        if (isCorrect && successCount >= SUCCESS_THRESHOLD[fact.level]) {
-            if (fact.level < KNOWLEDGE_LEVELS.MASTERED) {
-                newLevel = fact.level + 1;
-                successCount = 0;
+    const updateFactProgress = useCallback(
+        (factId, isCorrect, responseTime = null) => {
+            if (!factId) {
+                console.error(
+                    "Cannot update fact progress: factId is required"
+                );
+                return;
             }
-        } else if (!isCorrect && fact.level > KNOWLEDGE_LEVELS.NEW) {
-            newLevel = fact.level - 1;
-        }
 
-        // Calcul de la prochaine date de révision
-        const now = new Date();
-        const nextReviewDate = new Date(now);
-        nextReviewDate.setDate(now.getDate() + REPETITION_INTERVALS[newLevel]);
+            setFacts((prev) => {
+                const fact = prev[factId];
+                if (!fact) {
+                    console.error(`Fact with ID ${factId} not found`);
+                    return prev;
+                }
 
-        // Mise à jour du fait
-        setFacts((prev) => ({
-            ...prev,
-            [factId]: {
-                ...fact,
-                level: newLevel,
-                successCount,
-                lastReviewed: now.toISOString(),
-                nextReview: nextReviewDate.toISOString(),
-                history: [
-                    ...fact.history,
-                    {
-                        date: now.toISOString(),
-                        isCorrect,
-                        responseTime: fact.responseTime || 0,
+                let newLevel = fact.level;
+                let successCount = isCorrect ? fact.successCount + 1 : 0;
+
+                // Mise à jour du niveau en fonction de la réponse
+                if (
+                    isCorrect &&
+                    successCount >= SUCCESS_THRESHOLD[fact.level]
+                ) {
+                    if (fact.level < KNOWLEDGE_LEVELS.MASTERED) {
+                        newLevel = fact.level + 1;
+                        successCount = 0;
+                    }
+                } else if (!isCorrect && fact.level > KNOWLEDGE_LEVELS.NEW) {
+                    newLevel = fact.level - 1;
+                }
+
+                // Calcul de la prochaine date de révision
+                const now = new Date();
+                const nextReviewDate = new Date(now);
+                nextReviewDate.setDate(
+                    now.getDate() + REPETITION_INTERVALS[newLevel]
+                );
+
+                // Mise à jour du fait
+                return {
+                    ...prev,
+                    [factId]: {
+                        ...fact,
+                        level: newLevel,
+                        successCount,
+                        lastReviewed: now.toISOString(),
+                        nextReview: nextReviewDate.toISOString(),
+                        history: [
+                            ...fact.history,
+                            {
+                                date: now.toISOString(),
+                                isCorrect,
+                                responseTime: responseTime || 0,
+                            },
+                        ],
                     },
-                ],
-            },
-        }));
-    };
+                };
+            });
+        },
+        [setFacts]
+    );
 
     /**
      * Récupère les faits qui doivent être révisés aujourd'hui
@@ -153,17 +209,22 @@ export const useSpacedRepetition = (userId, progressionId) => {
      */
     const getFactsToReviewToday = useCallback(() => {
         const now = new Date();
-        return Object.values(facts).filter((fact) => {
+        const factsToReview = Object.values(facts).filter((fact) => {
+            if (!fact || !fact.nextReview) return false;
+
             const nextReview = new Date(fact.nextReview);
             return nextReview <= now;
         });
+
+        console.log(`Found ${factsToReview.length} facts to review today`);
+        return factsToReview;
     }, [facts]);
 
     /**
      * Récupère des statistiques sur la progression de l'apprentissage
      * @returns {Object} Statistiques
      */
-    const getProgressStats = () => {
+    const getProgressStats = useCallback(() => {
         const totalFacts = Object.keys(facts).length;
         const factsByLevel = {
             [KNOWLEDGE_LEVELS.NEW]: 0,
@@ -173,12 +234,18 @@ export const useSpacedRepetition = (userId, progressionId) => {
         };
 
         Object.values(facts).forEach((fact) => {
-            factsByLevel[fact.level]++;
+            if (fact && typeof fact.level === "number") {
+                factsByLevel[fact.level] = (factsByLevel[fact.level] || 0) + 1;
+            }
         });
+
+        // Récupérer les faits à réviser aujourd'hui
+        const factsToReview = getFactsToReviewToday();
 
         return {
             totalFacts,
             factsByLevel,
+            factsToReview,
             masteredPercentage:
                 totalFacts > 0
                     ? Math.round(
@@ -188,11 +255,12 @@ export const useSpacedRepetition = (userId, progressionId) => {
                       )
                     : 0,
         };
-    };
+    }, [facts, getFactsToReviewToday]);
 
     // Mise à jour des faits à réviser au chargement et lorsque les faits changent
     useEffect(() => {
-        setFactsToReview(getFactsToReviewToday());
+        const toReview = getFactsToReviewToday();
+        setFactsToReview(toReview);
     }, [facts, getFactsToReviewToday]);
 
     return {
