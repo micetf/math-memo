@@ -14,6 +14,7 @@ Développer une application éducative interactive qui :
 -   Utilise un algorithme de répétition espacée pour optimiser l'apprentissage
 -   Propose une progression didactique structurée et adaptée au programme scolaire
 -   Fonctionne hors ligne grâce aux technologies PWA
+-   Permet à plusieurs utilisateurs de partager le même appareil avec des profils distincts
 
 ### Stack technique
 
@@ -55,6 +56,7 @@ mathmemo/
 │   │   ├── Home.jsx             # Page d'accueil
 │   │   ├── Exercise.jsx         # Page d'exercices
 │   │   ├── Progress.jsx         # Page de suivi de progression
+│   │   ├── Profiles.jsx         # Page de gestion des profils utilisateurs
 │   │   └── Settings.jsx         # Page de paramètres
 │   ├── data/
 │   │   └── progressions.js      # Données des progressions didactiques par niveau
@@ -170,9 +172,10 @@ L'application utilise deux contextes principaux :
 
 #### AuthContext (`src/contexts/AuthContext.js` et `src/contexts/AuthProvider.jsx`)
 
--   Gère l'authentification des utilisateurs
--   Stocke les informations de l'utilisateur actuel dans le localStorage
--   Fournit les fonctions `login`, `loginAsGuest`, `logout` et `updateProfile`
+-   Gère l'authentification et les profils utilisateurs
+-   Permet de créer, sélectionner et supprimer des profils utilisateur
+-   Stocke les informations des profils et l'identifiant du profil actif dans le localStorage
+-   Fournit les fonctions `createProfile`, `switchProfile`, `deleteProfile`, `updateProfile` et `logout`
 
 #### ProgressContext (`src/contexts/ProgressContext.js` et `src/contexts/ProgressProvider.jsx`)
 
@@ -192,7 +195,16 @@ Les composants d'exercices sont situés dans `src/components/exercises/` et gèr
 -   `ResultFeedback.jsx` : Feedback visuel après une réponse
 -   `FactCard.jsx` : Affichage d'un fait numérique dans la vue de progression
 
-### 5. Fonctionnalités PWA
+### 5. Gestion des profils utilisateurs
+
+L'application permet de gérer plusieurs profils utilisateurs, ce qui est particulièrement utile dans un contexte scolaire ou familial où plusieurs élèves peuvent partager le même appareil.
+
+#### Principaux fichiers :
+
+-   `Profiles.jsx` : Page dédiée à la gestion des profils
+-   `AuthProvider.jsx` : Logique de gestion des profils multiples
+
+### 6. Fonctionnalités PWA
 
 Les fonctionnalités PWA sont implémentées principalement via le service worker et les services PWA.
 
@@ -236,7 +248,26 @@ L'application permet à l'élève de suivre sa progression et de visualiser son 
 -   Historique des sessions
 -   Prochaines révisions prévues
 
-### 4. Mode hors ligne (PWA)
+### 4. Gestion des profils utilisateurs
+
+L'application permet de gérer plusieurs profils utilisateurs sur un même appareil.
+
+#### Fonctionnalités :
+
+-   **Création de profils** : Chaque profil peut avoir un nom, un niveau (CP, CE1, CE2) et des préférences spécifiques
+-   **Sélection de profil** : Possibilité de passer facilement d'un profil à l'autre
+-   **Suppression de profils** : Option pour supprimer les profils inutilisés
+-   **Persistance** : Les profils et leurs données sont sauvegardés dans le localStorage du navigateur
+-   **Progression individuelle** : Chaque profil conserve sa propre progression dans l'apprentissage
+
+#### Processus :
+
+1. Les utilisateurs peuvent accéder à la gestion des profils via la page Paramètres
+2. Ils peuvent créer un nouveau profil en spécifiant un nom et un niveau
+3. Ils peuvent sélectionner un profil existant pour y accéder
+4. La progression et les préférences sont spécifiques à chaque profil
+
+### 5. Mode hors ligne (PWA)
 
 L'application fonctionne hors ligne grâce aux technologies PWA et peut être installée sur l'écran d'accueil.
 
@@ -350,6 +381,8 @@ export default ComponentName;
 
 5. **Internationalisation** : Support pour plusieurs langues.
 
+6. **Interface de groupe** : Extension de la gestion des profils pour permettre la création de classes et de groupes.
+
 ## Ressources et références
 
 ### Documentation technique
@@ -366,6 +399,6 @@ export default ComponentName;
 
 ## Conclusion
 
-MathMemo est une application éducative complète conçue pour aider les élèves du cycle 2 à mémoriser les faits numériques essentiels. Son architecture modulaire basée sur React et son algorithme de répétition espacée en font un outil puissant et adaptatif pour l'apprentissage des mathématiques.
+MathMemo est une application éducative complète conçue pour aider les élèves du cycle 2 à mémoriser les faits numériques essentiels. Son architecture modulaire basée sur React et son algorithme de répétition espacée en font un outil puissant et adaptatif pour l'apprentissage des mathématiques. La fonctionnalité de gestion multi-profils permet son utilisation dans différents contextes (scolaire, familial) où plusieurs utilisateurs partagent le même appareil.
 
 Cette documentation devrait fournir toutes les informations nécessaires pour permettre à une nouvelle équipe de développeurs de comprendre l'architecture et de poursuivre le développement de l'application.
