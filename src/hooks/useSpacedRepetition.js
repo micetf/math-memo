@@ -45,10 +45,19 @@ const SUCCESS_THRESHOLD = {
  * @returns {Object} Fonctions et état pour gérer la répétition espacée
  */
 export const useSpacedRepetition = (userId, progressionId) => {
+    // Validation des entrées
+    const validUserId = userId || "guest";
+    const validProgressionId = progressionId || "default";
+
+    // Construction de la clé de stockage avec userId et progressionId
+    const storageKey = `spaced-rep-${validUserId}-${validProgressionId}`;
+
+    // Journalisation pour débogage
+    console.log(
+        `Initialisation de useSpacedRepetition avec la clé: ${storageKey}`
+    );
+
     // Récupération des données stockées localement
-    const storageKey = `spaced-rep-${userId || "guest"}-${
-        progressionId || "default"
-    }`;
     const [facts, setFacts] = useLocalStorage(storageKey, {});
 
     // État pour suivre les faits à réviser aujourd'hui
@@ -56,9 +65,57 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
     // Debug
     useEffect(() => {
-        console.log("SpacedRepetition initialized with key:", storageKey);
-        console.log("Current facts in storage:", facts);
+        console.log(
+            `SpacedRepetition: ${storageKey}, ${
+                Object.keys(facts).length
+            } faits trouvés`
+        );
     }, [storageKey, facts]);
+
+    /**
+     * Fonction pour vérifier si un fait appartient au niveau actuel
+     * @param {string} factId - ID du fait à vérifier
+     * @returns {boolean} - true si le fait appartient au niveau actuel
+     */
+    const isFactFromCurrentLevel = useCallback(
+        (factId) => {
+            // Les IDs des faits commencent généralement par le code du niveau
+            return factId && factId.startsWith(validProgressionId);
+        },
+        [validProgressionId]
+    );
+
+    /**
+     * Nettoie les faits qui ne correspondent pas au niveau actuel
+     * @returns {Object} Faits filtrés
+     */
+    const cleanupInconsistentFacts = useCallback(() => {
+        const currentLevelFacts = {};
+        let inconsistentFactsFound = false;
+
+        // Filtrer pour ne garder que les faits du niveau actuel
+        Object.keys(facts).forEach((factId) => {
+            if (isFactFromCurrentLevel(factId)) {
+                currentLevelFacts[factId] = facts[factId];
+            } else {
+                inconsistentFactsFound = true;
+                console.log(`Fait inconsistant détecté et ignoré: ${factId}`);
+            }
+        });
+
+        // Mettre à jour le stockage si des faits inconsistants ont été trouvés
+        if (inconsistentFactsFound) {
+            console.log(`Nettoyage des faits inconsistants pour ${storageKey}`);
+            setFacts(currentLevelFacts);
+        }
+
+        return currentLevelFacts;
+    }, [facts, isFactFromCurrentLevel, setFacts, storageKey]);
+
+    // Exécuter un nettoyage initial
+    useEffect(() => {
+        cleanupInconsistentFacts();
+    }, [cleanupInconsistentFacts]);
 
     /**
      * Crée ou met à jour un fait numérique dans la base de faits
@@ -69,6 +126,14 @@ export const useSpacedRepetition = (userId, progressionId) => {
         (factId, factData) => {
             if (!factId) {
                 console.error("Cannot add fact: factId is required");
+                return;
+            }
+
+            // Vérifier que le fait appartient au niveau actuel
+            if (!isFactFromCurrentLevel(factId)) {
+                console.warn(
+                    `Tentative d'ajout d'un fait de niveau incorrect: ${factId} pour le niveau ${validProgressionId}`
+                );
                 return;
             }
 
@@ -92,7 +157,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
                 };
             });
         },
-        [setFacts]
+        [setFacts, isFactFromCurrentLevel, validProgressionId]
     );
 
     /**
@@ -110,11 +175,21 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
             setFacts((prev) => {
                 const newFacts = { ...prev };
+                let factsAdded = 0;
 
                 factsArray.forEach((fact) => {
                     if (!fact || !fact.id) return;
 
                     const factId = fact.id;
+
+                    // Vérifier que le fait appartient au niveau actuel
+                    if (!isFactFromCurrentLevel(factId)) {
+                        console.warn(
+                            `Ignoring fact from incorrect level: ${factId}`
+                        );
+                        return;
+                    }
+
                     if (!newFacts[factId]) {
                         newFacts[factId] = {
                             id: factId,
@@ -125,13 +200,17 @@ export const useSpacedRepetition = (userId, progressionId) => {
                             history: [],
                             ...fact,
                         };
+                        factsAdded++;
                     }
                 });
 
+                console.log(
+                    `${factsAdded} nouveaux faits ajoutés pour ${storageKey}`
+                );
                 return newFacts;
             });
         },
-        [setFacts]
+        [setFacts, isFactFromCurrentLevel, storageKey]
     );
 
     /**
@@ -179,6 +258,12 @@ export const useSpacedRepetition = (userId, progressionId) => {
                     now.getDate() + REPETITION_INTERVALS[newLevel]
                 );
 
+                console.log(
+                    `Mise à jour du fait ${factId}: niveau ${
+                        fact.level
+                    } -> ${newLevel}, prochaine révision: ${nextReviewDate.toLocaleDateString()}`
+                );
+
                 // Mise à jour du fait
                 return {
                     ...prev,
@@ -209,23 +294,31 @@ export const useSpacedRepetition = (userId, progressionId) => {
      */
     const getFactsToReviewToday = useCallback(() => {
         const now = new Date();
-        const factsToReview = Object.values(facts).filter((fact) => {
-            if (!fact || !fact.nextReview) return false;
+        const currentLevelFacts = cleanupInconsistentFacts();
 
-            const nextReview = new Date(fact.nextReview);
-            return nextReview <= now;
-        });
+        const factsToReview = Object.values(currentLevelFacts).filter(
+            (fact) => {
+                if (!fact || !fact.nextReview) return false;
 
-        console.log(`Found ${factsToReview.length} facts to review today`);
+                const nextReview = new Date(fact.nextReview);
+                return nextReview <= now;
+            }
+        );
+
+        console.log(
+            `${factsToReview.length} faits à réviser aujourd'hui pour ${storageKey}`
+        );
         return factsToReview;
-    }, [facts]);
+    }, [cleanupInconsistentFacts, storageKey]);
 
     /**
      * Récupère des statistiques sur la progression de l'apprentissage
      * @returns {Object} Statistiques
      */
     const getProgressStats = useCallback(() => {
-        const totalFacts = Object.keys(facts).length;
+        const currentLevelFacts = cleanupInconsistentFacts();
+        const totalFacts = Object.keys(currentLevelFacts).length;
+
         const factsByLevel = {
             [KNOWLEDGE_LEVELS.NEW]: 0,
             [KNOWLEDGE_LEVELS.LEARNING]: 0,
@@ -233,7 +326,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
             [KNOWLEDGE_LEVELS.MASTERED]: 0,
         };
 
-        Object.values(facts).forEach((fact) => {
+        Object.values(currentLevelFacts).forEach((fact) => {
             if (fact && typeof fact.level === "number") {
                 factsByLevel[fact.level] = (factsByLevel[fact.level] || 0) + 1;
             }
@@ -255,7 +348,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
                       )
                     : 0,
         };
-    }, [facts, getFactsToReviewToday]);
+    }, [cleanupInconsistentFacts, getFactsToReviewToday]);
 
     // Mise à jour des faits à réviser au chargement et lorsque les faits changent
     useEffect(() => {

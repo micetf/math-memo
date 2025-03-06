@@ -3,7 +3,7 @@
  * @description Page principale d'exercices avec répétition espacée
  */
 
-import { useState, useEffect, useContext, useCallback } from "react";
+import { useState, useEffect, useContext, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 import { Card } from "../components/common/Card";
@@ -30,6 +30,7 @@ const Exercise = () => {
         addMultipleFacts,
     } = useContext(ProgressContext);
 
+    // États pour la session d'exercices
     const [currentSession, setCurrentSession] = useState(null);
     const [currentFactIndex, setCurrentFactIndex] = useState(0);
     const [sessionComplete, setSessionComplete] = useState(false);
@@ -40,30 +41,62 @@ const Exercise = () => {
         totalTime: 0,
     });
 
+    // Références pour éviter les problèmes de fermeture (closure)
+    const sessionRef = useRef(null);
+    const factIndexRef = useRef(0);
+
     // Effets sonores
     const correctSound = useAudio("/assets/sounds/success.mp3", {
-        autoload: false,
+        autoload: true,
     });
     const incorrectSound = useAudio("/assets/sounds/error.mp3", {
-        autoload: false,
+        autoload: true,
     });
 
     // Fonction pour générer des faits fallback si getFactsToReviewToday retourne vide
     const generateFallbackFacts = useCallback(() => {
-        // Sélectionner le niveau actuel
-        const progression = PROGRESSIONS[currentLevel];
-        if (!progression) return [];
+        // S'assurer d'utiliser le niveau de l'utilisateur s'il est connecté
+        const levelToUse = user?.level || currentLevel;
+        console.log(
+            `Génération de faits de secours pour le niveau: ${levelToUse}`
+        );
+
+        // Sélectionner le niveau approprié
+        const progression = PROGRESSIONS[levelToUse];
+        if (!progression) {
+            console.error(
+                `Niveau ${levelToUse} non trouvé, utilisation de CP par défaut`
+            );
+            return PROGRESSIONS["cp"].periods[0].units[0].facts.slice(0, 5);
+        }
 
         // Prendre la première période et première unité
         const period = progression.periods[0];
-        if (!period) return [];
+        if (!period) {
+            console.error(
+                `Pas de période trouvée pour le niveau ${levelToUse}`
+            );
+            return [];
+        }
 
         const unit = period.units[0];
-        if (!unit) return [];
+        if (!unit) {
+            console.error(`Pas d'unité trouvée dans la période ${period.name}`);
+            return [];
+        }
+
+        console.log(
+            `Génération de faits de secours depuis: ${progression.name} > ${period.name} > ${unit.name}`
+        );
 
         // Retourner quelques faits de cette unité (limiter à 5 pour la session)
+        if (!unit.facts || unit.facts.length === 0) {
+            console.error(`Pas de faits trouvés dans l'unité ${unit.name}`);
+            return [];
+        }
+
         return unit.facts.slice(0, 5);
-    }, [currentLevel]);
+    }, [user, currentLevel]);
 
     // Charger les faits à réviser au chargement de la page
     useEffect(() => {
@@ -79,10 +112,18 @@ const Exercise = () => {
 
                 // Récupérer les faits à réviser
                 let factsToReview = getFactsToReviewToday();
+                console.log(
+                    "Faits à réviser récupérés:",
+                    factsToReview?.length || 0
+                );
 
                 // Si pas de faits à réviser, utiliser des faits de fallback
                 if (!factsToReview || factsToReview.length === 0) {
                     const fallbackFacts = generateFallbackFacts();
+                    console.log(
+                        "Utilisation de faits de secours:",
+                        fallbackFacts.length
+                    );
 
                     // Ajouter ces faits au système de répétition
                     if (fallbackFacts.length > 0) {
@@ -94,10 +135,22 @@ const Exercise = () => {
                 if (factsToReview && factsToReview.length > 0) {
                     // Limiter à 10 faits par session pour ne pas fatiguer l'élève
                     const sessionFacts = factsToReview.slice(0, 10);
+                    console.log(
+                        "Session créée avec",
+                        sessionFacts.length,
+                        "faits"
+                    );
                     setCurrentSession(sessionFacts);
+
+                    // Mettre à jour les références
+                    sessionRef.current = sessionFacts;
+                    factIndexRef.current = 0;
+
+                    // Mettre à jour les états
                     setCurrentFactIndex(0);
                     setSessionComplete(false);
                 } else {
+                    console.log("Aucun fait à réviser, session terminée");
                     // Pas de faits à réviser
                     setSessionComplete(true);
                 }
@@ -121,7 +174,7 @@ const Exercise = () => {
      */
     const handleExerciseResult = (result) => {
         const { factId, isCorrect, responseTime } = result;
-        console.log("Exercise result:", result);
+        console.log("Résultat de l'exercice:", result);
 
         // Mettre à jour les statistiques de la session
         setSessionStats((prev) => ({
@@ -138,18 +191,34 @@ const Exercise = () => {
         }
 
         // Mettre à jour la progression avec l'algorithme de répétition espacée
-        updateFactProgress(factId, isCorrect);
+        updateFactProgress(factId, isCorrect, responseTime);
     };
 
     /**
      * Passe à l'exercice suivant ou termine la session
      */
     const handleNextExercise = () => {
-        if (currentSession && currentFactIndex < currentSession.length - 1) {
-            // Incrémenter directement pour éviter les problèmes d'état asynchrone
-            const newIndex = currentFactIndex + 1;
-            setCurrentFactIndex(newIndex);
+        // Utiliser les références pour éviter les problèmes de closure
+        const session = sessionRef.current;
+        const currentIndex = factIndexRef.current;
+
+        console.log(
+            `Passage au fait suivant: ${currentIndex + 1}/${
+                session?.length || 0
+            }`
+        );
+
+        if (session && currentIndex < session.length - 1) {
+            // Incrémenter les références et les états
+            factIndexRef.current = currentIndex + 1;
+            setCurrentFactIndex(currentIndex + 1);
+
+            console.log(
+                `Nouvel index: ${factIndexRef.current}, fait actuel:`,
+                session[factIndexRef.current]
+            );
         } else {
+            console.log("Tous les exercices sont terminés");
             // Tous les exercices sont terminés
             setSessionComplete(true);
         }
@@ -191,6 +260,16 @@ const Exercise = () => {
             totalTime: sessionStats.totalTime.toFixed(1),
         };
     };
+
+    // Debug - Afficher les états actuels
+    useEffect(() => {
+        console.log("État actuel:", {
+            sessionLength: currentSession?.length || 0,
+            currentFactIndex,
+            refIndex: factIndexRef.current,
+            sessionComplete,
+        });
+    }, [currentSession, currentFactIndex, sessionComplete]);
 
     // Afficher un écran de chargement pendant l'initialisation
     if (isLoading) {
@@ -348,9 +427,12 @@ const Exercise = () => {
         );
     }
 
-    // Afficher l'exercice en cours
-    const currentFact = currentSession[currentFactIndex];
-    const progress = ((currentFactIndex + 1) / currentSession.length) * 100;
+    // Obtenir le fait actuel en utilisant la référence pour plus de fiabilité
+    const session = sessionRef.current || [];
+    const index = factIndexRef.current;
+    const currentFact = session[index];
+    const progress =
+        session.length > 0 ? ((index + 1) / session.length) * 100 : 0;
 
     return (
         <Layout
@@ -369,8 +451,7 @@ const Exercise = () => {
             <div className="max-w-md mx-auto mb-6">
                 <div className="flex justify-between items-center mb-2">
                     <div className="text-sm text-gray-600">
-                        Exercice {currentFactIndex + 1} sur{" "}
-                        {currentSession.length}
+                        Exercice {index + 1} sur {session.length}
                     </div>
                 </div>
 
@@ -383,6 +464,7 @@ const Exercise = () => {
 
                 {currentFact ? (
                     <ExerciseCard
+                        key={`exercise-${index}-${currentFact.id}`} // Ajout d'une clé dynamique pour forcer le remontage
                         fact={currentFact}
                         onResult={handleExerciseResult}
                         onNext={handleNextExercise}

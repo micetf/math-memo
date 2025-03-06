@@ -1,74 +1,230 @@
 /**
  * @file ProgressProvider.jsx
- * @description Contexte pour gérer la progression des élèves - version d'urgence pour éviter les boucles
+ * @description Contexte pour gérer la progression des élèves
  */
 
-import { useState, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
 import PropTypes from "prop-types";
 import AuthContext from "./AuthContext";
 import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../data/progressions";
 import ProgressContext from "./ProgressContext";
+import {
+    useSpacedRepetition,
+    KNOWLEDGE_LEVELS,
+} from "../hooks/useSpacedRepetition";
 
 /**
- * Fournisseur de contexte pour gérer la progression de l'élève - version simplifiée
+ * Fournisseur de contexte pour gérer la progression de l'élève
  * @param {Object} props - Propriétés du composant
  * @param {React.ReactNode} props.children - Composants enfants
  * @returns {JSX.Element} Fournisseur ProgressContext
  */
 export const ProgressProvider = ({ children }) => {
     const { user } = useContext(AuthContext);
+
+    // État pour le niveau, la période et l'unité actifs
     const [currentLevel, setCurrentLevel] = useState(
         user?.level || DIFFICULTY_LEVELS.CP
     );
     const [activePeriod, setActivePeriod] = useState(null);
     const [activeUnit, setActiveUnit] = useState(null);
 
-    // Version simplifiée pour éviter les boucles infinies
-    const mockFacts = {
-        "mock-fact-1": {
-            id: "mock-fact-1",
-            level: 0,
-            successCount: 0,
-        },
-    };
+    // Utiliser l'ID de l'utilisateur pour le stockage des données de progression
+    const userId = user?.id || "guest";
 
-    const mockFactsToReview = [];
-
-    // Fonctions simplifiées
-    const changeLevel = (level) => {
-        if (PROGRESSIONS[level]) {
-            setCurrentLevel(level);
+    // Synchroniser le niveau avec le profil utilisateur quand il change
+    useEffect(() => {
+        if (user && user.level && user.level !== currentLevel) {
+            console.log(
+                `Synchronisation du niveau avec le profil: ${user.level}`
+            );
+            setCurrentLevel(user.level);
         }
-    };
+    }, [user, currentLevel]);
 
-    const changePeriod = (period) => {
-        setActivePeriod(period);
-    };
+    // Initialiser le hook de répétition espacée avec l'ID utilisateur et le niveau
+    const {
+        facts,
+        factsToReview,
+        addFact,
+        addMultipleFacts,
+        updateFactProgress,
+        getFactsToReviewToday,
+        getProgressStats,
+    } = useSpacedRepetition(userId, currentLevel);
 
-    const changeUnit = (unit) => {
-        setActiveUnit(unit);
-    };
+    // Journalisation pour le débogage
+    useEffect(() => {
+        console.log("ProgressProvider - État actuel:", {
+            userId,
+            currentLevel,
+            activePeriodId: activePeriod?.id,
+            activeUnitId: activeUnit?.id,
+            factsCount: Object.keys(facts || {}).length,
+            factsToReviewCount: factsToReview?.length || 0,
+        });
+    }, [userId, currentLevel, activePeriod, activeUnit, facts, factsToReview]);
 
-    const getFactProgress = () => null;
+    // Mise à jour de la période et de l'unité actives lors du changement de niveau
+    useEffect(() => {
+        if (currentLevel && PROGRESSIONS[currentLevel]) {
+            const firstPeriod = PROGRESSIONS[currentLevel].periods[0];
+            if (firstPeriod) {
+                console.log(
+                    `Sélection de la période par défaut: ${firstPeriod.name}`
+                );
+                setActivePeriod(firstPeriod);
 
-    const getFactsWithProgress = () => [];
+                const firstUnit = firstPeriod.units[0];
+                if (firstUnit) {
+                    console.log(
+                        `Sélection de l'unité par défaut: ${firstUnit.name}`
+                    );
+                    setActiveUnit(firstUnit);
+                }
+            }
+        }
+    }, [currentLevel]);
 
-    const getOverallProgress = () => ({
-        totalFacts: 0,
-        factsByLevel: { 0: 0, 1: 0, 2: 0, 3: 0 },
-        masteredPercentage: 0,
-        progressionCoverage: 0,
-    });
+    // Fonction pour initialiser les faits numériques de l'unité active
+    useEffect(() => {
+        if (activeUnit && activeUnit.facts && activeUnit.facts.length > 0) {
+            // Vérifier que les faits ne sont pas déjà ajoutés au système
+            const factsToAdd = activeUnit.facts.filter(
+                (fact) => !facts[fact.id]
+            );
 
-    const addFact = () => {};
+            if (factsToAdd.length > 0) {
+                console.log(
+                    `Ajout de ${factsToAdd.length} nouveaux faits de l'unité ${activeUnit.name}`
+                );
+                addMultipleFacts(factsToAdd);
+            }
+        }
+    }, [activeUnit, facts, addMultipleFacts]);
 
-    const addMultipleFacts = () => {};
+    /**
+     * Change le niveau de difficulté actif
+     * @param {string} level - Niveau de difficulté
+     */
+    const changeLevel = useCallback((level) => {
+        if (PROGRESSIONS[level]) {
+            console.log(`Changement de niveau vers: ${level}`);
+            setCurrentLevel(level);
+        } else {
+            console.error(
+                `Le niveau ${level} n'existe pas dans les progressions`
+            );
+        }
+    }, []);
 
-    const updateFactProgress = () => {};
+    /**
+     * Change la période active
+     * @param {Object} period - Période à activer
+     */
+    const changePeriod = useCallback((period) => {
+        if (period && period.units) {
+            console.log(`Changement de période vers: ${period.name}`);
+            setActivePeriod(period);
 
-    const getFactsToReviewToday = () => [];
+            // Activer la première unité de la nouvelle période par défaut
+            if (period.units.length > 0) {
+                console.log(
+                    `Sélection de la première unité: ${period.units[0].name}`
+                );
+                setActiveUnit(period.units[0]);
+            }
+        }
+    }, []);
 
-    // Valeur du contexte simplifiée
+    /**
+     * Change l'unité active
+     * @param {Object} unit - Unité à activer
+     */
+    const changeUnit = useCallback((unit) => {
+        if (unit) {
+            console.log(`Changement d'unité vers: ${unit.name}`);
+            setActiveUnit(unit);
+        }
+    }, []);
+
+    /**
+     * Récupère la progression pour un fait spécifique
+     * @param {string} factId - Identifiant du fait
+     * @returns {Object|null} Progression du fait ou null
+     */
+    const getFactProgress = useCallback(
+        (factId) => {
+            if (!factId || !facts[factId]) {
+                return null;
+            }
+            return facts[factId];
+        },
+        [facts]
+    );
+
+    /**
+     * Récupère tous les faits de l'unité active avec leur progression
+     * @returns {Array} Faits avec leur progression
+     */
+    const getFactsWithProgress = useCallback(() => {
+        if (!activeUnit || !activeUnit.facts) {
+            return [];
+        }
+
+        return activeUnit.facts.map((fact) => ({
+            ...fact,
+            progress: facts[fact.id] || {
+                level: KNOWLEDGE_LEVELS.NEW,
+                successCount: 0,
+                lastReviewed: null,
+                nextReview: null,
+            },
+        }));
+    }, [activeUnit, facts]);
+
+    /**
+     * Calcule les statistiques globales de progression
+     * @returns {Object} Statistiques de progression
+     */
+    const getOverallProgress = useCallback(() => {
+        const stats = getProgressStats();
+
+        // Calcul du pourcentage de couverture de la progression
+        let totalFactsInProgression = 0;
+        let factsAdded = 0;
+
+        if (currentLevel && PROGRESSIONS[currentLevel]) {
+            PROGRESSIONS[currentLevel].periods.forEach((period) => {
+                period.units.forEach((unit) => {
+                    if (unit.facts) {
+                        totalFactsInProgression += unit.facts.length;
+
+                        unit.facts.forEach((fact) => {
+                            if (facts[fact.id]) {
+                                factsAdded++;
+                            }
+                        });
+                    }
+                });
+            });
+        }
+
+        const progressionCoverage =
+            totalFactsInProgression > 0
+                ? Math.round((factsAdded / totalFactsInProgression) * 100)
+                : 0;
+
+        return {
+            ...stats,
+            progressionCoverage,
+            currentLevel,
+            activePeriodName: activePeriod?.name || null,
+            activeUnitName: activeUnit?.name || null,
+        };
+    }, [currentLevel, facts, getProgressStats, activePeriod, activeUnit]);
+
+    // Valeur du contexte à exposer
     const contextValue = {
         currentLevel,
         activePeriod,
@@ -79,9 +235,10 @@ export const ProgressProvider = ({ children }) => {
         getFactProgress,
         getFactsWithProgress,
         getOverallProgress,
+
         // Fonctions du système de répétition espacée
-        facts: mockFacts,
-        factsToReview: mockFactsToReview,
+        facts,
+        factsToReview,
         addFact,
         addMultipleFacts,
         updateFactProgress,

@@ -26,23 +26,38 @@ export const ExerciseCard = ({ fact, onResult, onNext, showTimer = true }) => {
     const [feedback, setFeedback] = useState(null);
     const [startTime, setStartTime] = useState(null);
     const [responseTime, setResponseTime] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false); // Nouvel état pour éviter les soumissions multiples
     const inputRef = useRef(null);
+    const factIdRef = useRef(null); // Référence pour stocker l'ID du fait actuel
 
     // Réinitialiser l'état lors du changement de fait
     useEffect(() => {
         if (!fact) return;
 
-        setAnswer("");
-        setIsCorrect(null);
-        setFeedback(null);
-        setStartTime(Date.now());
-        setResponseTime(null);
+        // Vérifier si c'est un nouveau fait (éviter les réinitialisations en boucle)
+        if (factIdRef.current !== fact.id) {
+            console.log(
+                `Initialisation de l'exercice pour le fait: ${fact.id}`
+            );
+            factIdRef.current = fact.id;
 
-        // Focus sur l'input au chargement d'un nouveau fait
-        if (inputRef.current) {
-            setTimeout(() => {
-                inputRef.current.focus();
-            }, 100);
+            setAnswer("");
+            setIsCorrect(null);
+            setFeedback(null);
+            setStartTime(Date.now());
+            setResponseTime(null);
+            setIsSubmitting(false);
+
+            // Focus sur l'input au chargement d'un nouveau fait
+            if (inputRef.current) {
+                setTimeout(() => {
+                    try {
+                        inputRef.current.focus();
+                    } catch (error) {
+                        console.error("Erreur lors du focus:", error);
+                    }
+                }, 100);
+            }
         }
     }, [fact]);
 
@@ -134,7 +149,11 @@ export const ExerciseCard = ({ fact, onResult, onNext, showTimer = true }) => {
     const handleSubmit = (e) => {
         e.preventDefault();
 
-        if (!answer || isCorrect !== null || !fact) return;
+        // Vérifier si une réponse a déjà été soumise ou s'il n'y a pas de réponse
+        if (!answer || isCorrect !== null || !fact || isSubmitting) return;
+
+        // Empêcher les soumissions multiples
+        setIsSubmitting(true);
 
         const userAnswer = parseInt(answer, 10);
         let correctAnswer;
@@ -163,6 +182,12 @@ export const ExerciseCard = ({ fact, onResult, onNext, showTimer = true }) => {
         const endTime = Date.now();
         const timeTaken = (endTime - startTime) / 1000; // en secondes
 
+        console.log(
+            `Réponse soumise: ${userAnswer}, correcte: ${correct}, temps: ${timeTaken.toFixed(
+                2
+            )}s`
+        );
+
         setIsCorrect(correct);
         setResponseTime(timeTaken);
 
@@ -186,19 +211,30 @@ export const ExerciseCard = ({ fact, onResult, onNext, showTimer = true }) => {
         }
 
         // Appeler la fonction de callback avec le résultat
-        onResult({
-            factId: fact.id,
-            isCorrect: correct,
-            responseTime: timeTaken,
-        });
+        if (typeof onResult === "function") {
+            onResult({
+                factId: fact.id,
+                isCorrect: correct,
+                responseTime: timeTaken,
+            });
+        } else {
+            console.error("onResult is not a function");
+        }
     };
 
     /**
      * Passe à l'exercice suivant
      */
     const handleNext = () => {
+        console.log("Passage à l'exercice suivant");
+
+        // Réinitialiser l'état pour éviter les problèmes de transition
+        setIsSubmitting(false);
+
         if (typeof onNext === "function") {
             onNext();
+        } else {
+            console.error("onNext is not a function");
         }
     };
 
@@ -288,7 +324,7 @@ export const ExerciseCard = ({ fact, onResult, onNext, showTimer = true }) => {
                                 variant="primary"
                                 size="lg"
                                 className="mt-4"
-                                disabled={!answer}
+                                disabled={!answer || isSubmitting}
                             >
                                 Vérifier
                             </Button>
