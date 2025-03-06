@@ -1,12 +1,11 @@
 /**
  * @file App.jsx
- * @description Composant principal de l'application
+ * @description Composant principal de l'application - version simplifiée
  */
 
 import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthProvider";
-import { ProgressProvider } from "./contexts/ProgressProvider";
+import { AppProviders } from "./AppProviders";
 import { registerServiceWorker } from "./services/pwaService";
 import Home from "./pages/Home";
 import Exercise from "./pages/Exercise";
@@ -19,7 +18,7 @@ import Profiles from "./pages/Profiles";
  * @returns {JSX.Element} Composant App
  */
 const App = () => {
-    // Enregistrer le service worker au chargement de l'application
+    // Enregistrer le service worker une seule fois au démarrage
     useEffect(() => {
         const initServiceWorker = async () => {
             try {
@@ -37,21 +36,19 @@ const App = () => {
     }, []);
 
     return (
-        <AuthProvider>
-            <ProgressProvider>
-                <Router>
-                    <Routes>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/exercise" element={<Exercise />} />
-                        <Route path="/progress" element={<Progress />} />
-                        <Route path="/settings" element={<Settings />} />
-                        <Route path="/profiles" element={<Profiles />} />
-                        {/* Rediriger les routes inconnues vers l'accueil */}
-                        <Route path="*" element={<Home />} />
-                    </Routes>
-                </Router>
-            </ProgressProvider>
-        </AuthProvider>
+        <AppProviders>
+            <Router>
+                <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/exercise" element={<Exercise />} />
+                    <Route path="/progress" element={<Progress />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/profiles" element={<Profiles />} />
+                    {/* Rediriger les routes inconnues vers l'accueil */}
+                    <Route path="*" element={<Home />} />
+                </Routes>
+            </Router>
+        </AppProviders>
     );
 };
 

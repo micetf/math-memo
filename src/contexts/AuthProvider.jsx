@@ -1,9 +1,9 @@
 /**
  * @file AuthProvider.jsx
- * @description Contexte pour gérer l'authentification et les profils multiples
+ * @description Contexte pour gérer l'authentification des utilisateurs - version corrigée
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import AuthContext from "./AuthContext";
 
@@ -23,8 +23,14 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Utiliser une ref pour éviter les rendus multiples
+    const initializedRef = useRef(false);
+
     // Initialisation des profils au démarrage
     useEffect(() => {
+        // Éviter les initialisations multiples
+        if (initializedRef.current) return;
+
         const initializeAuth = () => {
             try {
                 setLoading(true);
@@ -51,6 +57,7 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 setError(null);
+                initializedRef.current = true;
             } catch (err) {
                 console.error(
                     "Erreur lors de l'initialisation de l'authentification:",
@@ -65,31 +72,45 @@ export const AuthProvider = ({ children }) => {
         initializeAuth();
     }, []);
 
+    // Utiliser une ref pour éviter les mises à jour infinies
+    const profilesRef = useRef(profiles);
+
     // Sauvegarder les profils quand ils changent
     useEffect(() => {
-        try {
-            localStorage.setItem(
-                "mathmemo-profiles",
-                JSON.stringify(profiles || [])
-            );
-        } catch (err) {
-            console.error("Erreur de sauvegarde des profils:", err);
+        // Ne mettre à jour que si les profils ont changé
+        if (JSON.stringify(profilesRef.current) !== JSON.stringify(profiles)) {
+            try {
+                localStorage.setItem(
+                    "mathmemo-profiles",
+                    JSON.stringify(profiles || [])
+                );
+                profilesRef.current = profiles;
+            } catch (err) {
+                console.error("Erreur de sauvegarde des profils:", err);
+            }
         }
     }, [profiles]);
 
+    // Utiliser une ref pour éviter les mises à jour infinies
+    const userIdRef = useRef(user?.id);
+
     // Sauvegarder l'ID de l'utilisateur actif quand il change
     useEffect(() => {
-        try {
-            if (user && user.id) {
-                localStorage.setItem("mathmemo-active-user", user.id);
-            } else if (!user) {
-                localStorage.removeItem("mathmemo-active-user");
+        // Ne mettre à jour que si l'ID utilisateur a changé
+        if (userIdRef.current !== user?.id) {
+            try {
+                if (user && user.id) {
+                    localStorage.setItem("mathmemo-active-user", user.id);
+                } else if (!user) {
+                    localStorage.removeItem("mathmemo-active-user");
+                }
+                userIdRef.current = user?.id;
+            } catch (err) {
+                console.error(
+                    "Erreur de sauvegarde de l'ID utilisateur actif:",
+                    err
+                );
             }
-        } catch (err) {
-            console.error(
-                "Erreur de sauvegarde de l'ID utilisateur actif:",
-                err
-            );
         }
     }, [user]);
 
@@ -264,6 +285,39 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
+    /**
+     * Connecte l'utilisateur en tant qu'invité
+     */
+    const loginAsGuest = useCallback(() => {
+        try {
+            const guestProfile = {
+                id: `guest-${Date.now()}`,
+                name: "Invité",
+                isGuest: true,
+                level: "cp",
+                preferences: {
+                    showTimer: true,
+                    soundEffects: true,
+                    darkMode: false,
+                },
+                createdAt: new Date().toISOString(),
+            };
+
+            setUser(guestProfile);
+            setError(null);
+            return guestProfile;
+        } catch (err) {
+            console.error(
+                "Erreur lors de la connexion en tant qu'invité:",
+                err
+            );
+            setError(
+                "Erreur lors de la connexion en tant qu'invité: " + err.message
+            );
+            return null;
+        }
+    }, []);
+
     // Valeur du contexte à exposer
     const contextValue = {
         user,
@@ -275,6 +329,7 @@ export const AuthProvider = ({ children }) => {
         updateProfile,
         deleteProfile,
         logout,
+        loginAsGuest,
     };
 
     return (

@@ -1,9 +1,9 @@
 /**
  * @file ProgressProvider.jsx
- * @description Contexte pour gérer la progression des élèves
+ * @description Contexte pour gérer la progression des élèves - version corrigée
  */
 
-import { useState, useEffect, useContext, useCallback } from "react";
+import { useState, useEffect, useContext, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import AuthContext from "./AuthContext";
 import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../data/progressions";
@@ -22,6 +22,10 @@ import {
 export const ProgressProvider = ({ children }) => {
     const { user } = useContext(AuthContext);
 
+    // Utiliser une ref pour suivre les changements d'utilisateur ou de niveau
+    const prevUserRef = useRef(null);
+    const prevLevelRef = useRef(null);
+
     // État pour le niveau, la période et l'unité actifs
     const [currentLevel, setCurrentLevel] = useState(
         user?.level || DIFFICULTY_LEVELS.CP
@@ -34,11 +38,20 @@ export const ProgressProvider = ({ children }) => {
 
     // Synchroniser le niveau avec le profil utilisateur quand il change
     useEffect(() => {
-        if (user && user.level && user.level !== currentLevel) {
+        // Vérifier si l'utilisateur ou le niveau a changé pour éviter les mises à jour inutiles
+        if (
+            user &&
+            user.level &&
+            user.level !== currentLevel &&
+            (prevUserRef.current !== user.id ||
+                prevLevelRef.current !== user.level)
+        ) {
             console.log(
                 `Synchronisation du niveau avec le profil: ${user.level}`
             );
             setCurrentLevel(user.level);
+            prevUserRef.current = user.id;
+            prevLevelRef.current = user.level;
         }
     }, [user, currentLevel]);
 
@@ -54,20 +67,31 @@ export const ProgressProvider = ({ children }) => {
     } = useSpacedRepetition(userId, currentLevel);
 
     // Journalisation pour le débogage
+    const logOnceRef = useRef(false);
     useEffect(() => {
-        console.log("ProgressProvider - État actuel:", {
-            userId,
-            currentLevel,
-            activePeriodId: activePeriod?.id,
-            activeUnitId: activeUnit?.id,
-            factsCount: Object.keys(facts || {}).length,
-            factsToReviewCount: factsToReview?.length || 0,
-        });
+        // Limiter la journalisation pour éviter les boucles de mise à jour
+        if (!logOnceRef.current) {
+            console.log("ProgressProvider - État initial:", {
+                userId,
+                currentLevel,
+                activePeriodId: activePeriod?.id,
+                activeUnitId: activeUnit?.id,
+                factsCount: Object.keys(facts || {}).length,
+                factsToReviewCount: factsToReview?.length || 0,
+            });
+            logOnceRef.current = true;
+        }
     }, [userId, currentLevel, activePeriod, activeUnit, facts, factsToReview]);
 
     // Mise à jour de la période et de l'unité actives lors du changement de niveau
+    // Utiliser une ref pour éviter de déclencher cet effet trop souvent
+    const levelInitializedRef = useRef(false);
     useEffect(() => {
-        if (currentLevel && PROGRESSIONS[currentLevel]) {
+        if (
+            currentLevel &&
+            PROGRESSIONS[currentLevel] &&
+            !levelInitializedRef.current
+        ) {
             const firstPeriod = PROGRESSIONS[currentLevel].periods[0];
             if (firstPeriod) {
                 console.log(
@@ -81,14 +105,22 @@ export const ProgressProvider = ({ children }) => {
                         `Sélection de l'unité par défaut: ${firstUnit.name}`
                     );
                     setActiveUnit(firstUnit);
+                    levelInitializedRef.current = true;
                 }
             }
         }
     }, [currentLevel]);
 
     // Fonction pour initialiser les faits numériques de l'unité active
+    // Utiliser une ref pour suivre les unités déjà initialisées
+    const initializedUnitsRef = useRef(new Set());
     useEffect(() => {
-        if (activeUnit && activeUnit.facts && activeUnit.facts.length > 0) {
+        if (
+            activeUnit &&
+            activeUnit.facts &&
+            activeUnit.facts.length > 0 &&
+            !initializedUnitsRef.current.has(activeUnit.id)
+        ) {
             // Vérifier que les faits ne sont pas déjà ajoutés au système
             const factsToAdd = activeUnit.facts.filter(
                 (fact) => !facts[fact.id]
@@ -99,6 +131,7 @@ export const ProgressProvider = ({ children }) => {
                     `Ajout de ${factsToAdd.length} nouveaux faits de l'unité ${activeUnit.name}`
                 );
                 addMultipleFacts(factsToAdd);
+                initializedUnitsRef.current.add(activeUnit.id);
             }
         }
     }, [activeUnit, facts, addMultipleFacts]);
@@ -110,6 +143,8 @@ export const ProgressProvider = ({ children }) => {
     const changeLevel = useCallback((level) => {
         if (PROGRESSIONS[level]) {
             console.log(`Changement de niveau vers: ${level}`);
+            // Réinitialiser l'état d'initialisation
+            levelInitializedRef.current = false;
             setCurrentLevel(level);
         } else {
             console.error(
