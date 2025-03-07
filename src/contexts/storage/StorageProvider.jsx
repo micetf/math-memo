@@ -1,9 +1,10 @@
 // src/contexts/storage/StorageProvider.jsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import StorageContext from "./StorageContext";
 import indexedDBService, {
     initializeDatabase,
+    isIndexedDBSupported,
     keyValueService,
 } from "../../services/indexedDBService";
 
@@ -55,7 +56,8 @@ const isSerializable = (value) => {
 
 /**
  * Fournisseur de contexte pour gérer le stockage de données de l'application
- * Utilise IndexedDB via Dexie.js pour un stockage persistant et performant
+ * Utilise IndexedDB via Dexie.js pour un stockage persistant et performant,
+ * avec fallback vers localStorage si IndexedDB n'est pas disponible
  *
  * @param {Object} props - Propriétés du composant
  * @param {React.ReactNode} props.children - Composants enfants
@@ -64,18 +66,28 @@ const isSerializable = (value) => {
 export const StorageProvider = ({ children }) => {
     const [isInitialized, setIsInitialized] = useState(false);
     const [error, setError] = useState(null);
-    const [isIndexedDBSupported, setIsIndexedDBSupported] = useState(true);
+    const [dbSupported, setDbSupported] = useState(null);
+    const [migrationStatus, setMigrationStatus] = useState(null);
+
+    // Référence pour éviter des initialisations multiples
+    const initializationInProgress = useRef(false);
 
     // Initialisation du stockage
     useEffect(() => {
         const initStorage = async () => {
+            // Éviter les initialisations multiples
+            if (initializationInProgress.current) return;
+            initializationInProgress.current = true;
+
             try {
                 // Vérifier que IndexedDB est disponible
-                if (!window.indexedDB) {
+                const indexedDBAvailable = isIndexedDBSupported();
+                setDbSupported(indexedDBAvailable);
+
+                if (!indexedDBAvailable) {
                     console.warn(
                         "IndexedDB n'est pas supporté, utilisation du fallback localStorage"
                     );
-                    setIsIndexedDBSupported(false);
                     setIsInitialized(true);
                     return;
                 }
@@ -83,14 +95,24 @@ export const StorageProvider = ({ children }) => {
                 // Initialiser IndexedDB
                 await initializeDatabase();
                 console.log("Stockage IndexedDB initialisé avec succès");
+
+                // Vérifier si la migration a déjà été effectuée
+                const migrationData = await keyValueService.getItem(
+                    "mathmemo-migration-completed"
+                );
+                setMigrationStatus(migrationData);
+
                 setIsInitialized(true);
+                setError(null);
             } catch (err) {
                 console.error("Erreur d'initialisation du stockage:", err);
                 setError(err.message);
 
                 // En cas d'échec avec IndexedDB, utiliser localStorage comme fallback
-                setIsIndexedDBSupported(false);
+                setDbSupported(false);
                 setIsInitialized(true);
+            } finally {
+                initializationInProgress.current = false;
             }
         };
 
@@ -116,7 +138,7 @@ export const StorageProvider = ({ children }) => {
                     throw new Error("Les données ne sont pas sérialisables");
                 }
 
-                if (isIndexedDBSupported) {
+                if (dbSupported) {
                     // Utiliser IndexedDB
                     await keyValueService.saveItem(key, data);
                 } else {
@@ -131,7 +153,7 @@ export const StorageProvider = ({ children }) => {
                 return false;
             }
         },
-        [isIndexedDBSupported]
+        [dbSupported]
     );
 
     /**
@@ -150,7 +172,7 @@ export const StorageProvider = ({ children }) => {
             try {
                 let data;
 
-                if (isIndexedDBSupported) {
+                if (dbSupported) {
                     // Utiliser IndexedDB
                     data = await keyValueService.getItem(key);
                 } else {
@@ -169,7 +191,7 @@ export const StorageProvider = ({ children }) => {
                 return defaultValue;
             }
         },
-        [isIndexedDBSupported]
+        [dbSupported]
     );
 
     /**
@@ -185,7 +207,7 @@ export const StorageProvider = ({ children }) => {
             }
 
             try {
-                if (isIndexedDBSupported) {
+                if (dbSupported) {
                     // Utiliser IndexedDB
                     await keyValueService.removeItem(key);
                 } else {
@@ -199,7 +221,7 @@ export const StorageProvider = ({ children }) => {
                 return false;
             }
         },
-        [isIndexedDBSupported]
+        [dbSupported]
     );
 
     /**
@@ -211,7 +233,7 @@ export const StorageProvider = ({ children }) => {
         async (key) => {
             if (!key) return false;
             try {
-                if (isIndexedDBSupported) {
+                if (dbSupported) {
                     // Utiliser IndexedDB
                     return await keyValueService.hasKey(key);
                 } else {
@@ -223,7 +245,40 @@ export const StorageProvider = ({ children }) => {
                 return false;
             }
         },
-        [isIndexedDBSupported]
+        [dbSupported]
+    );
+
+    /**
+     * Obtient toutes les clés commençant par un préfixe
+     * @param {string} prefix - Préfixe à rechercher
+     * @returns {Promise<Array<string>>} Liste des clés correspondantes
+     */
+    const getKeysWithPrefix = useCallback(
+        async (prefix) => {
+            if (!prefix) return [];
+
+            try {
+                if (dbSupported) {
+                    // Utiliser IndexedDB
+                    const items = await keyValueService.getItemsByPrefix(
+                        prefix
+                    );
+                    return items.map((item) => item.key);
+                } else {
+                    // Fallback à localStorage
+                    return Object.keys(localStorage).filter((key) =>
+                        key.startsWith(prefix)
+                    );
+                }
+            } catch (err) {
+                console.error(
+                    `Erreur lors de la recherche des clés avec préfixe ${prefix}:`,
+                    err
+                );
+                return [];
+            }
+        },
+        [dbSupported]
     );
 
     /**
@@ -232,9 +287,17 @@ export const StorageProvider = ({ children }) => {
      */
     const clearAllData = useCallback(async () => {
         try {
-            if (isIndexedDBSupported) {
-                // Utiliser IndexedDB
-                await keyValueService.clear();
+            if (dbSupported) {
+                // Utiliser IndexedDB pour effacer les données
+                await indexedDBService.keyValueService.clear();
+                // Effacer également les autres tables
+                const db = indexedDBService.getDatabase();
+                if (db) {
+                    await db.profiles.clear();
+                    await db.facts.clear();
+                    await db.sessions.clear();
+                    await db.analytics.clear();
+                }
             } else {
                 // Fallback à localStorage
                 localStorage.clear();
@@ -248,43 +311,78 @@ export const StorageProvider = ({ children }) => {
             setError(`Erreur de nettoyage: ${err.message}`);
             return false;
         }
-    }, [isIndexedDBSupported]);
+    }, [dbSupported]);
 
     /**
      * Migre les données de localStorage vers IndexedDB
-     * @returns {Promise<boolean>} Succès de la migration
+     * @returns {Promise<Object>} Résultat de la migration
      */
     const migrateFromLocalStorage = useCallback(async () => {
-        if (!isIndexedDBSupported) {
+        if (!dbSupported) {
             console.warn("IndexedDB n'est pas supporté, migration impossible");
-            return false;
+            return { success: false };
         }
 
         try {
-            return await indexedDBService.migrateFromLocalStorage();
+            const result = await indexedDBService.migrateFromLocalStorage();
+            setMigrationStatus({
+                date: new Date().toISOString(),
+                ...result,
+            });
+            return result;
         } catch (err) {
             console.error(
                 "Erreur lors de la migration depuis localStorage:",
                 err
             );
             setError(`Erreur de migration: ${err.message}`);
-            return false;
+            return { success: false, error: err.message };
         }
-    }, [isIndexedDBSupported]);
+    }, [dbSupported]);
+
+    /**
+     * Vérifie l'espace de stockage disponible
+     * @returns {Promise<Object>} Informations sur l'espace de stockage
+     */
+    const checkStorageSpace = useCallback(async () => {
+        try {
+            if (navigator.storage && navigator.storage.estimate) {
+                const estimate = await navigator.storage.estimate();
+                return {
+                    totalSpace: estimate.quota,
+                    usedSpace: estimate.usage,
+                    freeSpace: estimate.quota - estimate.usage,
+                    percentUsed: Math.round(
+                        (estimate.usage / estimate.quota) * 100
+                    ),
+                };
+            }
+            return null;
+        } catch (err) {
+            console.error(
+                "Erreur lors de la vérification de l'espace de stockage:",
+                err
+            );
+            return null;
+        }
+    }, []);
 
     // Valeur du contexte à exposer
     const contextValue = {
         isInitialized,
         error,
-        isIndexedDBSupported,
+        isIndexedDBSupported: dbSupported,
+        migrationStatus,
         saveData,
         loadData,
         removeData,
         hasKey,
+        getKeysWithPrefix,
         clearAllData,
         migrateFromLocalStorage,
+        checkStorageSpace,
         // Exposer les services spécifiques pour un accès direct
-        indexedDBService,
+        ...indexedDBService,
     };
 
     return (

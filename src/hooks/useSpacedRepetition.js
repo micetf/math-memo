@@ -38,11 +38,16 @@ const SUCCESS_THRESHOLD = {
  * Hook personnalisé pour gérer l'algorithme de répétition espacée
  * @param {string} userId - Identifiant de l'utilisateur
  * @param {string} progressionId - Identifiant de la progression didactique
+ * @param {Object} [factServiceOverride=null] - Service de faits personnalisé (optionnel)
  * @returns {Object} Fonctions et état pour gérer la répétition espacée
  */
-export const useSpacedRepetition = (userId, progressionId) => {
+export const useSpacedRepetition = (
+    userId,
+    progressionId,
+    factServiceOverride = null
+) => {
     // Validation des entrées avec useMemo pour éviter des recalculs inutiles
-    const storageKey = useMemo(() => {
+    const userFactsKey = useMemo(() => {
         const validUserId = userId || "guest";
         const validProgressionId = progressionId || "default";
         return `spaced-rep-${validUserId}-${validProgressionId}`;
@@ -51,8 +56,14 @@ export const useSpacedRepetition = (userId, progressionId) => {
     // Récupérer le contexte de stockage
     const storage = useStorage();
 
+    // Utiliser le service de faits fourni ou celui du contexte de stockage
+    const factsService = useMemo(
+        () => factServiceOverride || storage.factsService,
+        [factServiceOverride, storage.factsService]
+    );
+
     // État pour les faits et leur progression
-    const [facts, setFacts] = useState(() => storage.loadData(storageKey, {}));
+    const [facts, setFacts] = useState({});
 
     // État pour les faits à réviser aujourd'hui
     const [factsToReview, setFactsToReview] = useState([]);
@@ -63,67 +74,109 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
     // Référence pour éviter les rendus inutiles
     const lastSavedFacts = useRef({});
+    const isIndexedDBUsed = useRef(false);
 
     // Debug
     useEffect(() => {
         console.log(
-            `SpacedRepetition: ${storageKey}, ${
+            `SpacedRepetition: ${userFactsKey}, ${
                 Object.keys(facts).length
-            } faits trouvés`
+            } faits trouvés (${
+                isIndexedDBUsed.current ? "IndexedDB" : "localStorage"
+            })`
         );
-    }, [storageKey, facts]);
-
-    // ----- DÉBUT DES MÉTHODES DE STOCKAGE (À REMPLACER PAR INDEXEDDB) -----
+    }, [userFactsKey, facts]);
 
     /**
      * Sauvegarde les faits dans le stockage
      * @param {Object} updatedFacts - Faits à sauvegarder
      * @returns {Promise<boolean>} - Succès de l'opération
-     * @todo Remplacer par une implémentation IndexedDB
      */
     const saveFacts = useCallback(
         async (updatedFacts) => {
             try {
-                // Notation "await" pour faciliter la transition vers IndexedDB
-                await Promise.resolve(
-                    storage.saveData(storageKey, updatedFacts)
-                );
+                if (factsService && isIndexedDBUsed.current) {
+                    // Utiliser IndexedDB via factsService
+                    // Convertir l'objet en tableau pour saveManyFacts
+                    const factsArray = Object.entries(updatedFacts).map(
+                        ([factId, factData]) => ({
+                            ...factData,
+                            id: factId,
+                            userId,
+                            level: progressionId,
+                        })
+                    );
+
+                    await factsService.saveManyFacts(factsArray);
+                } else {
+                    // Fallback vers localStorage via saveData
+                    await storage.saveData(userFactsKey, updatedFacts);
+                }
                 return true;
             } catch (err) {
                 console.error(
-                    `Erreur lors de la sauvegarde des faits pour ${storageKey}:`,
+                    `Erreur lors de la sauvegarde des faits pour ${userFactsKey}:`,
                     err
                 );
                 setError(`Erreur de stockage: ${err.message}`);
                 return false;
             }
         },
-        [storage, storageKey]
+        [factsService, storage, userFactsKey, userId, progressionId]
     );
 
     /**
      * Charge les faits depuis le stockage
      * @returns {Promise<Object>} - Faits chargés
-     * @todo Remplacer par une implémentation IndexedDB
      */
     const loadFacts = useCallback(async () => {
         try {
-            // Notation "await" pour faciliter la transition vers IndexedDB
-            const data = await Promise.resolve(
-                storage.loadData(storageKey, {})
-            );
-            return data;
+            let loadedFacts = {};
+
+            if (factsService) {
+                try {
+                    // Essayer d'abord de charger depuis IndexedDB
+                    const factsFromDB =
+                        await factsService.getFactsByUserAndLevel(
+                            userId,
+                            progressionId
+                        );
+
+                    if (factsFromDB && factsFromDB.length > 0) {
+                        // Convertir le tableau en objet indexé par ID
+                        loadedFacts = factsFromDB.reduce((acc, fact) => {
+                            const { id, ...restOfFact } = fact;
+                            acc[id] = restOfFact;
+                            return acc;
+                        }, {});
+
+                        isIndexedDBUsed.current = true;
+                        console.log(
+                            `Chargé ${factsFromDB.length} faits depuis IndexedDB`
+                        );
+                        return loadedFacts;
+                    }
+                } catch (err) {
+                    console.warn(
+                        "Échec du chargement depuis IndexedDB, fallback vers localStorage:",
+                        err
+                    );
+                }
+            }
+
+            // Fallback vers localStorage
+            loadedFacts = await storage.loadData(userFactsKey, {});
+            isIndexedDBUsed.current = false;
+            return loadedFacts;
         } catch (err) {
             console.error(
-                `Erreur lors du chargement des faits pour ${storageKey}:`,
+                `Erreur lors du chargement des faits pour ${userFactsKey}:`,
                 err
             );
             setError(`Erreur de lecture: ${err.message}`);
             return {};
         }
-    }, [storage, storageKey]);
-
-    // ----- FIN DES MÉTHODES DE STOCKAGE -----
+    }, [factsService, storage, userFactsKey, userId, progressionId]);
 
     /**
      * Fonction pour vérifier si un fait appartient au niveau actuel
@@ -158,12 +211,14 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
         // Mettre à jour le stockage si des faits inconsistants ont été trouvés
         if (inconsistentFactsFound) {
-            console.log(`Nettoyage des faits inconsistants pour ${storageKey}`);
+            console.log(
+                `Nettoyage des faits inconsistants pour ${userFactsKey}`
+            );
             setFacts(currentLevelFacts);
         }
 
         return currentLevelFacts;
-    }, [facts, isFactFromCurrentLevel, storageKey]);
+    }, [facts, isFactFromCurrentLevel, userFactsKey]);
 
     // Exécuter un nettoyage initial et charger les faits
     useEffect(() => {
@@ -299,14 +354,14 @@ export const useSpacedRepetition = (userId, progressionId) => {
                 });
 
                 console.log(
-                    `${factsAdded} nouveaux faits ajoutés pour ${storageKey}`
+                    `${factsAdded} nouveaux faits ajoutés pour ${userFactsKey}`
                 );
                 return factsAdded > 0 ? newFacts : prev;
             });
 
             return true;
         },
-        [isFactFromCurrentLevel, storageKey]
+        [isFactFromCurrentLevel, userFactsKey]
     );
 
     /**
@@ -372,7 +427,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
                     lastReviewed: now.toISOString(),
                     nextReview: nextReviewDate.toISOString(),
                     history: [
-                        ...fact.history,
+                        ...(fact.history || []),
                         {
                             date: now.toISOString(),
                             isCorrect,
@@ -380,6 +435,24 @@ export const useSpacedRepetition = (userId, progressionId) => {
                         },
                     ],
                 };
+
+                // Mettre à jour dans IndexedDB si disponible
+                if (factsService && isIndexedDBUsed.current) {
+                    try {
+                        factsService.saveFact({
+                            ...updatedFact,
+                            id: factId,
+                            userId,
+                            level: progressionId,
+                        });
+                    } catch (e) {
+                        console.warn(
+                            "Erreur lors de la mise à jour dans IndexedDB:",
+                            e
+                        );
+                        // Continuer avec la mise à jour en mémoire quand même
+                    }
+                }
 
                 // Retourner les faits mis à jour
                 return {
@@ -390,7 +463,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
             return updatedFact;
         },
-        []
+        [factsService, userId, progressionId]
     );
 
     /**
@@ -401,6 +474,35 @@ export const useSpacedRepetition = (userId, progressionId) => {
         const now = new Date();
         const currentLevelFacts = cleanupInconsistentFacts();
 
+        // Si factsService est disponible et IndexedDB est utilisé, récupérer depuis la base de données
+        if (factsService && isIndexedDBUsed.current) {
+            try {
+                const reviewFacts = await factsService.getFactsToReview(
+                    userId,
+                    now
+                );
+                // Filtrer pour ne garder que les faits du niveau actuel
+                const levelReviewFacts = reviewFacts.filter(
+                    (fact) =>
+                        fact.level === progressionId ||
+                        isFactFromCurrentLevel(fact.id)
+                );
+
+                console.log(
+                    `${levelReviewFacts.length} faits à réviser aujourd'hui depuis IndexedDB pour ${userFactsKey}`
+                );
+
+                return levelReviewFacts;
+            } catch (err) {
+                console.warn(
+                    "Erreur lors de la récupération des faits à réviser depuis IndexedDB:",
+                    err
+                );
+                // En cas d'échec, fallback vers la méthode en mémoire
+            }
+        }
+
+        // Fallback : Filtrer les faits en mémoire
         const factsToReview = Object.values(currentLevelFacts).filter(
             (fact) => {
                 if (!fact || !fact.nextReview) return false;
@@ -411,10 +513,17 @@ export const useSpacedRepetition = (userId, progressionId) => {
         );
 
         console.log(
-            `${factsToReview.length} faits à réviser aujourd'hui pour ${storageKey}`
+            `${factsToReview.length} faits à réviser aujourd'hui pour ${userFactsKey}`
         );
         return factsToReview;
-    }, [cleanupInconsistentFacts, storageKey]);
+    }, [
+        cleanupInconsistentFacts,
+        factsService,
+        userId,
+        progressionId,
+        isFactFromCurrentLevel,
+        userFactsKey,
+    ]);
 
     /**
      * Récupère des statistiques sur la progression de l'apprentissage
@@ -438,12 +547,12 @@ export const useSpacedRepetition = (userId, progressionId) => {
         });
 
         // Récupérer les faits à réviser aujourd'hui
-        const factsToReview = await getFactsToReviewToday();
+        const factsToReviewList = await getFactsToReviewToday();
 
         return {
             totalFacts,
             factsByLevel,
-            factsToReview,
+            factsToReview: factsToReviewList,
             masteredPercentage:
                 totalFacts > 0
                     ? Math.round(
@@ -474,6 +583,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
         updateFactsToReview();
     }, [facts, getFactsToReviewToday, storage.isInitialized, loading]);
 
+    // Exposer les fonctionnalités publiques du hook
     return {
         facts,
         factsToReview,
@@ -485,5 +595,39 @@ export const useSpacedRepetition = (userId, progressionId) => {
         getFactsToReviewToday,
         getProgressStats,
         KNOWLEDGE_LEVELS,
+        // Nouvelle fonction pour vérifier quelle méthode de stockage est utilisée
+        isUsingIndexedDB: () => isIndexedDBUsed.current,
+        // Fonctions pour la migration des données
+        exportData: async () => {
+            return {
+                userId,
+                progressionId,
+                facts,
+                exportedAt: new Date().toISOString(),
+            };
+        },
+        importData: async (data) => {
+            if (!data || !data.facts) {
+                throw new Error("Données d'importation invalides");
+            }
+
+            // Vérifier si les données concernent le même utilisateur et niveau
+            if (
+                data.userId !== userId ||
+                data.progressionId !== progressionId
+            ) {
+                console.warn(
+                    "Importation de données pour un utilisateur ou niveau différent"
+                );
+            }
+
+            // Fusionner avec les faits existants
+            setFacts((prev) => ({
+                ...prev,
+                ...data.facts,
+            }));
+
+            return true;
+        },
     };
 };

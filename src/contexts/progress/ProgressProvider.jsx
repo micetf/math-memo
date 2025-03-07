@@ -16,8 +16,7 @@ import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../../data/progressions";
  */
 export const ProgressProvider = ({ children }) => {
     const { user } = useAuth();
-    // eslint-disable-next-line no-unused-vars
-    const storage = useStorage();
+    const { isInitialized, factsService } = useStorage();
 
     // État pour le niveau, la période et l'unité actifs
     const [currentLevel, setCurrentLevel] = useState(
@@ -54,7 +53,7 @@ export const ProgressProvider = ({ children }) => {
         updateFactProgress,
         getFactsToReviewToday,
         getProgressStats,
-    } = useSpacedRepetition(userId, currentLevel);
+    } = useSpacedRepetition(userId, currentLevel, factsService);
 
     // Mise à jour de la période et de l'unité actives lors du changement de niveau
     useEffect(() => {
@@ -105,7 +104,8 @@ export const ProgressProvider = ({ children }) => {
             activeUnit &&
             activeUnit.facts &&
             activeUnit.facts.length > 0 &&
-            !initializedUnitsRef.current.has(activeUnit.id)
+            !initializedUnitsRef.current.has(activeUnit.id) &&
+            isInitialized
         ) {
             try {
                 // Vérifier que les faits ne sont pas déjà ajoutés au système
@@ -128,7 +128,7 @@ export const ProgressProvider = ({ children }) => {
                 setError(`Erreur lors de l'ajout des faits: ${err.message}`);
             }
         }
-    }, [activeUnit, facts, addMultipleFacts, loading]);
+    }, [activeUnit, facts, addMultipleFacts, loading, isInitialized]);
 
     /**
      * Change le niveau de difficulté actif
@@ -291,6 +291,77 @@ export const ProgressProvider = ({ children }) => {
         };
     }, [currentLevel, facts, getProgressStats, activePeriod, activeUnit]);
 
+    /**
+     * Supprime tous les faits de progression pour l'utilisateur actuel
+     * Utile pour les tests ou réinitialiser les données
+     * @returns {Promise<boolean>} Succès de l'opération
+     */
+    const clearUserProgress = useCallback(async () => {
+        try {
+            if (!userId) {
+                console.warn(
+                    "Impossible de supprimer les faits: aucun utilisateur actif"
+                );
+                return false;
+            }
+
+            if (factsService && factsService.deleteAllFactsForUser) {
+                await factsService.deleteAllFactsForUser(userId);
+                console.log(
+                    `Progression supprimée pour l'utilisateur ${userId}`
+                );
+                // Réinitialiser les références pour forcer le rechargement
+                initializedUnitsRef.current = new Set();
+                return true;
+            } else {
+                console.warn("Service de suppression de faits non disponible");
+                return false;
+            }
+        } catch (err) {
+            console.error(
+                "Erreur lors de la suppression de la progression:",
+                err
+            );
+            setError(
+                `Erreur lors de la suppression de la progression: ${err.message}`
+            );
+            return false;
+        }
+    }, [userId, factsService]);
+
+    /**
+     * Exporte les données de progression au format JSON
+     * @returns {Object|null} Données exportées ou null en cas d'erreur
+     */
+    const exportProgress = useCallback(() => {
+        try {
+            if (!userId) {
+                console.warn(
+                    "Impossible d'exporter la progression: aucun utilisateur actif"
+                );
+                return null;
+            }
+
+            return {
+                userId,
+                level: currentLevel,
+                exportedAt: new Date().toISOString(),
+                facts,
+                metadata: {
+                    totalFacts: Object.keys(facts).length,
+                    stats: getProgressStats(),
+                },
+            };
+        } catch (err) {
+            console.error(
+                "Erreur lors de l'exportation de la progression:",
+                err
+            );
+            setError(`Erreur lors de l'exportation: ${err.message}`);
+            return null;
+        }
+    }, [userId, currentLevel, facts, getProgressStats]);
+
     // Valeur du contexte à exposer
     const contextValue = {
         currentLevel,
@@ -304,6 +375,8 @@ export const ProgressProvider = ({ children }) => {
         getFactProgress,
         getFactsWithProgress,
         getOverallProgress,
+        clearUserProgress,
+        exportProgress,
 
         // Fonctions du système de répétition espacée
         facts,
