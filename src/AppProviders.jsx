@@ -6,7 +6,6 @@ import {
     ProgressProvider,
     UIProvider,
     ThemeProvider,
-    ProviderComposer,
 } from "./contexts";
 
 /**
@@ -16,17 +15,17 @@ import {
  * @returns {JSX.Element} Fournisseur de contextes combinés
  */
 export const AppProviders = ({ children }) => {
-    // Ordre des providers : du plus externe au plus interne
-    const providers = [
-        <StorageProvider key="storage" />,
-        <AuthProvider key="auth" />,
-        <ProgressProvider key="progress" />,
-        <ThemeProvider key="theme" />,
-        <UIProvider key="ui" />,
-    ];
-
+    // Corrigé : Chaque provider doit explicitement recevoir ses enfants
     return (
-        <ProviderComposer providers={providers}>{children}</ProviderComposer>
+        <StorageProvider>
+            <AuthProvider>
+                <ProgressProvider>
+                    <ThemeProvider>
+                        <UIProvider>{children}</UIProvider>
+                    </ThemeProvider>
+                </ProgressProvider>
+            </AuthProvider>
+        </StorageProvider>
     );
 };
 

@@ -27,7 +27,7 @@ export const UIProvider = ({ children }) => {
     useEffect(() => {
         if (!storage.isInitialized) return;
 
-        const loadUIPreferences = () => {
+        const loadUIPreferences = async () => {
             try {
                 setLoading(true);
 
@@ -38,7 +38,7 @@ export const UIProvider = ({ children }) => {
                     setShowTimer(user.preferences.showTimer ?? true);
                 } else {
                     // Sinon, utilisez les préférences stockées localement
-                    const storedPreferences = storage.loadData(
+                    const storedPreferences = await storage.loadData(
                         UI_PREFERENCES_KEY,
                         {
                             darkMode: false,
@@ -77,14 +77,30 @@ export const UIProvider = ({ children }) => {
     useEffect(() => {
         if (!storage.isInitialized || loading) return;
 
-        const saveUIPreferences = () => {
+        const saveUIPreferences = async () => {
             // Sauvegarder les préférences localement si pas d'utilisateur ou utilisateur invité
             if (!user || user.isGuest) {
-                storage.saveData(UI_PREFERENCES_KEY, {
-                    darkMode,
-                    soundEffects,
-                    showTimer,
-                });
+                try {
+                    // Créer un objet de préférences sérialisable
+                    const preferences = {
+                        darkMode,
+                        soundEffects,
+                        showTimer,
+                    };
+
+                    // S'assurer qu'aucune propriété non sérialisable n'est présente
+                    // Convertir en JSON et revenir pour éliminer tout ce qui n'est pas sérialisable
+                    const serializedPrefs = JSON.parse(
+                        JSON.stringify(preferences)
+                    );
+
+                    await storage.saveData(UI_PREFERENCES_KEY, serializedPrefs);
+                } catch (error) {
+                    console.error(
+                        "Erreur lors de la sauvegarde des préférences UI:",
+                        error
+                    );
+                }
             }
         };
 
@@ -131,11 +147,22 @@ export const UIProvider = ({ children }) => {
      * @param {number} duration - Durée d'affichage en ms
      */
     const showToast = useCallback((message, type = "info", duration = 3000) => {
-        setToast({ message, type, id: Date.now() });
+        // Créer un objet toast avec une ID unique
+        const newToast = {
+            message,
+            type,
+            id: Date.now(),
+        };
+
+        setToast(newToast);
 
         // Effacer automatiquement le toast après la durée spécifiée
         setTimeout(() => {
-            setToast(null);
+            setToast((currentToast) =>
+                currentToast && currentToast.id === newToast.id
+                    ? null
+                    : currentToast
+            );
         }, duration);
     }, []);
 

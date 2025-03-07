@@ -250,11 +250,26 @@ export const useExerciseSession = ({
                 payload: { isCorrect, responseTime },
             });
 
-            // Jouer le son correspondant
-            if (isCorrect) {
-                correctSound.play();
-            } else {
-                incorrectSound.play();
+            // Jouer le son correspondant, mais seulement si les sons sont disponibles
+            try {
+                if (isCorrect && correctSound.audioAvailable) {
+                    correctSound.play().catch((err) => {
+                        console.warn(
+                            "Impossible de jouer le son de succès:",
+                            err
+                        );
+                    });
+                } else if (!isCorrect && incorrectSound.audioAvailable) {
+                    incorrectSound.play().catch((err) => {
+                        console.warn(
+                            "Impossible de jouer le son d'erreur:",
+                            err
+                        );
+                    });
+                }
+            } catch (error) {
+                console.warn("Erreur lors de la lecture des sons:", error);
+                // Ne pas bloquer le flux d'exécution à cause d'une erreur de son
             }
 
             // Mettre à jour la progression avec l'algorithme de répétition espacée

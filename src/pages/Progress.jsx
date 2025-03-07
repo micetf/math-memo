@@ -1,15 +1,11 @@
-/**
- * @file Progress.jsx
- * @description Page de suivi de progression de l'élève
- */
-
-import { useContext, useState } from "react";
+// src/pages/Progress.jsx
+import { useContext, useState, useEffect } from "react";
 import { Layout } from "../components/layout/Layout";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { ProgressBar } from "../components/common/ProgressBar";
 import { FactCard } from "../components/exercises/FactCard";
-import {ProgressContext, AuthContext} from "../contexts";
+import { ProgressContext, AuthContext } from "../contexts";
 import {
     DIFFICULTY_LEVELS,
     PROGRESSIONS,
@@ -34,7 +30,48 @@ const Progress = () => {
         getOverallProgress,
     } = useContext(ProgressContext);
 
-    const [viewMode, setViewMode] = useState("summary"); // summary, details
+    const [viewMode, setViewMode] = useState("summary");
+    const [stats, setStats] = useState(null);
+    const [factsWithProgress, setFactsWithProgress] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    // Charger les statistiques et les faits
+    useEffect(() => {
+        const loadProgressData = async () => {
+            if (!user) return;
+
+            setIsLoading(true);
+            try {
+                // Charger les statistiques
+                const overallStats = await getOverallProgress();
+                setStats(overallStats);
+
+                // Charger les faits avec leur progression
+                const factsData = await getFactsWithProgress();
+                setFactsWithProgress(factsData);
+
+                setError(null);
+            } catch (err) {
+                console.error(
+                    "Erreur lors du chargement des données de progression:",
+                    err
+                );
+                setError("Impossible de charger les données de progression");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadProgressData();
+    }, [
+        user,
+        getOverallProgress,
+        getFactsWithProgress,
+        currentLevel,
+        activePeriod,
+        activeUnit,
+    ]);
 
     // Si l'utilisateur n'est pas connecté, afficher un message
     if (!user) {
@@ -52,8 +89,28 @@ const Progress = () => {
         );
     }
 
-    // Récupérer les statistiques globales
-    const stats = getOverallProgress();
+    // Si chargement en cours, afficher un indicateur
+    if (isLoading) {
+        return (
+            <Layout title="Progression">
+                <div className="flex justify-center items-center h-64">
+                    <div className="animate-spin h-8 w-8 border-t-2 border-b-2 border-blue-500 rounded-full"></div>
+                </div>
+            </Layout>
+        );
+    }
+
+    // Si erreur, afficher un message
+    if (error) {
+        return (
+            <Layout title="Progression">
+                <div className="max-w-md mx-auto bg-red-100 text-red-700 p-4 rounded-lg">
+                    <h2 className="font-bold mb-2">Erreur</h2>
+                    <p>{error}</p>
+                </div>
+            </Layout>
+        );
+    }
 
     /**
      * Obtient le libellé du niveau de difficulté
@@ -84,11 +141,13 @@ const Progress = () => {
             result[type] = 0;
         });
 
-        Object.values(stats.facts || {}).forEach((fact) => {
-            if (fact.type) {
-                result[fact.type] = (result[fact.type] || 0) + 1;
-            }
-        });
+        if (stats && stats.facts) {
+            Object.values(stats.facts).forEach((fact) => {
+                if (fact.type) {
+                    result[fact.type] = (result[fact.type] || 0) + 1;
+                }
+            });
+        }
 
         return result;
     };
@@ -98,19 +157,20 @@ const Progress = () => {
      * @returns {Object} Nombre de faits par niveau
      */
     const getFactsByMasteryLevel = () => {
-        return (
-            stats.factsByLevel || {
+        if (!stats || !stats.factsByLevel) {
+            return {
                 [KNOWLEDGE_LEVELS.NEW]: 0,
                 [KNOWLEDGE_LEVELS.LEARNING]: 0,
                 [KNOWLEDGE_LEVELS.REVIEWING]: 0,
                 [KNOWLEDGE_LEVELS.MASTERED]: 0,
-            }
-        );
+            };
+        }
+        return stats.factsByLevel;
     };
 
-    const factsWithProgress = getFactsWithProgress();
     const factsByOperation = getFactsByOperation();
     const factsByMastery = getFactsByMasteryLevel();
+    const totalFacts = stats ? stats.totalFacts || 0 : 0;
 
     return (
         <Layout title="Ma progression">
@@ -128,11 +188,17 @@ const Progress = () => {
                                     Faits maîtrisés
                                 </div>
                                 <div className="text-2xl font-bold text-blue-600">
-                                    {factsByMastery[KNOWLEDGE_LEVELS.MASTERED]}{" "}
-                                    / {stats.totalFacts}
+                                    {factsByMastery[
+                                        KNOWLEDGE_LEVELS.MASTERED
+                                    ] || 0}{" "}
+                                    / {totalFacts}
                                 </div>
                                 <ProgressBar
-                                    value={stats.masteredPercentage}
+                                    value={
+                                        stats
+                                            ? stats.masteredPercentage || 0
+                                            : 0
+                                    }
                                     variant="primary"
                                     className="mt-2"
                                 />
@@ -155,7 +221,7 @@ const Progress = () => {
                                     À réviser aujourd&lsquo;hui
                                 </div>
                                 <div className="text-2xl font-bold text-yellow-600">
-                                    {stats.factsToReview?.length || 0} faits
+                                    {stats?.factsToReview?.length || 0} faits
                                 </div>
                                 <button className="text-xs text-blue-600 mt-2">
                                     Commencer la révision →
@@ -293,8 +359,10 @@ const Progress = () => {
                                             </div>
                                             <ProgressBar
                                                 value={
-                                                    (count / stats.totalFacts) *
-                                                    100
+                                                    totalFacts > 0
+                                                        ? (count / totalFacts) *
+                                                          100
+                                                        : 0
                                                 }
                                                 variant={
                                                     type ===
@@ -330,21 +398,21 @@ const Progress = () => {
                                             Nouveaux
                                         </span>
                                         <span className="text-sm text-gray-500">
-                                            {
-                                                factsByMastery[
-                                                    KNOWLEDGE_LEVELS.NEW
-                                                ]
-                                            }{" "}
+                                            {factsByMastery[
+                                                KNOWLEDGE_LEVELS.NEW
+                                            ] || 0}{" "}
                                             faits
                                         </span>
                                     </div>
                                     <ProgressBar
                                         value={
-                                            (factsByMastery[
-                                                KNOWLEDGE_LEVELS.NEW
-                                            ] /
-                                                stats.totalFacts) *
-                                            100
+                                            totalFacts > 0
+                                                ? ((factsByMastery[
+                                                      KNOWLEDGE_LEVELS.NEW
+                                                  ] || 0) *
+                                                      100) /
+                                                  totalFacts
+                                                : 0
                                         }
                                         variant="info"
                                     />
@@ -356,21 +424,21 @@ const Progress = () => {
                                             En apprentissage
                                         </span>
                                         <span className="text-sm text-gray-500">
-                                            {
-                                                factsByMastery[
-                                                    KNOWLEDGE_LEVELS.LEARNING
-                                                ]
-                                            }{" "}
+                                            {factsByMastery[
+                                                KNOWLEDGE_LEVELS.LEARNING
+                                            ] || 0}{" "}
                                             faits
                                         </span>
                                     </div>
                                     <ProgressBar
                                         value={
-                                            (factsByMastery[
-                                                KNOWLEDGE_LEVELS.LEARNING
-                                            ] /
-                                                stats.totalFacts) *
-                                            100
+                                            totalFacts > 0
+                                                ? ((factsByMastery[
+                                                      KNOWLEDGE_LEVELS.LEARNING
+                                                  ] || 0) *
+                                                      100) /
+                                                  totalFacts
+                                                : 0
                                         }
                                         variant="warning"
                                     />
@@ -382,21 +450,21 @@ const Progress = () => {
                                             En révision
                                         </span>
                                         <span className="text-sm text-gray-500">
-                                            {
-                                                factsByMastery[
-                                                    KNOWLEDGE_LEVELS.REVIEWING
-                                                ]
-                                            }{" "}
+                                            {factsByMastery[
+                                                KNOWLEDGE_LEVELS.REVIEWING
+                                            ] || 0}{" "}
                                             faits
                                         </span>
                                     </div>
                                     <ProgressBar
                                         value={
-                                            (factsByMastery[
-                                                KNOWLEDGE_LEVELS.REVIEWING
-                                            ] /
-                                                stats.totalFacts) *
-                                            100
+                                            totalFacts > 0
+                                                ? ((factsByMastery[
+                                                      KNOWLEDGE_LEVELS.REVIEWING
+                                                  ] || 0) *
+                                                      100) /
+                                                  totalFacts
+                                                : 0
                                         }
                                         variant="primary"
                                     />
@@ -408,21 +476,21 @@ const Progress = () => {
                                             Maîtrisés
                                         </span>
                                         <span className="text-sm text-gray-500">
-                                            {
-                                                factsByMastery[
-                                                    KNOWLEDGE_LEVELS.MASTERED
-                                                ]
-                                            }{" "}
+                                            {factsByMastery[
+                                                KNOWLEDGE_LEVELS.MASTERED
+                                            ] || 0}{" "}
                                             faits
                                         </span>
                                     </div>
                                     <ProgressBar
                                         value={
-                                            (factsByMastery[
-                                                KNOWLEDGE_LEVELS.MASTERED
-                                            ] /
-                                                stats.totalFacts) *
-                                            100
+                                            totalFacts > 0
+                                                ? ((factsByMastery[
+                                                      KNOWLEDGE_LEVELS.MASTERED
+                                                  ] || 0) *
+                                                      100) /
+                                                  totalFacts
+                                                : 0
                                         }
                                         variant="success"
                                     />
