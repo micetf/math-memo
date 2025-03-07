@@ -10,8 +10,7 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Icon } from "../components/common/Icon";
 import { ProgressBar } from "../components/common/ProgressBar";
-import AuthContext from "../contexts/AuthContext";
-import ProgressContext from "../contexts/ProgressContext";
+import {AuthContext,ProgressContext } from "../contexts";
 import { DIFFICULTY_LEVELS } from "../data/progressions";
 import { isAppInstalled, promptInstall } from "../services/pwaService";
 

@@ -9,7 +9,7 @@ import { Layout } from "../components/layout/Layout";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Icon } from "../components/common/Icon";
-import AuthContext from "../contexts/AuthContext";
+import { AuthContext } from "../contexts";
 import { DIFFICULTY_LEVELS } from "../data/progressions";
 
 /**

@@ -9,8 +9,7 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { ProgressBar } from "../components/common/ProgressBar";
 import { FactCard } from "../components/exercises/FactCard";
-import ProgressContext from "../contexts/ProgressContext";
-import AuthContext from "../contexts/AuthContext";
+import {ProgressContext, AuthContext} from "../contexts";
 import {
     DIFFICULTY_LEVELS,
     PROGRESSIONS,

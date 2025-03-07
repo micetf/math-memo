@@ -1,54 +1,53 @@
-/**
- * @file AuthProvider.jsx
- * @description Contexte pour gérer l'authentification des utilisateurs - version corrigée
- */
-
-import { useState, useEffect, useCallback, useRef } from "react";
+// src/contexts/auth/AuthProvider.jsx
+import { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
-import AuthContext from "./AuthContext";
+import { AuthContext, useStorage } from "..";
+import { DIFFICULTY_LEVELS } from "../../data/progressions";
+
+// Clés de stockage
+const STORAGE_KEYS = {
+    PROFILES: "mathmemo-profiles",
+    ACTIVE_USER: "mathmemo-active-user",
+};
 
 /**
- * Fournisseur de contexte pour gérer l'authentification
+ * Fournisseur de contexte pour gérer l'authentification des utilisateurs
  * @param {Object} props - Propriétés du composant
  * @param {React.ReactNode} props.children - Composants enfants
  * @returns {JSX.Element} Fournisseur AuthContext
  */
 export const AuthProvider = ({ children }) => {
-    // État pour l'utilisateur actif
-    const [user, setUser] = useState(null);
+    // Accès au contexte de stockage
+    const storage = useStorage();
 
-    // État pour tous les profils existants
+    // États
     const [profiles, setProfiles] = useState([]);
-
+    const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Utiliser une ref pour éviter les rendus multiples
-    const initializedRef = useRef(false);
-
-    // Initialisation des profils au démarrage
+    // Initialisation au chargement
     useEffect(() => {
-        // Éviter les initialisations multiples
-        if (initializedRef.current) return;
+        if (!storage.isInitialized) return;
 
         const initializeAuth = () => {
             try {
                 setLoading(true);
 
                 // Charger tous les profils
-                const storedProfiles =
-                    localStorage.getItem("mathmemo-profiles");
-                const parsedProfiles = storedProfiles
-                    ? JSON.parse(storedProfiles)
-                    : [];
-                setProfiles(parsedProfiles);
+                const storedProfiles = storage.loadData(
+                    STORAGE_KEYS.PROFILES,
+                    []
+                );
+                setProfiles(storedProfiles);
 
                 // Charger l'utilisateur actif
-                const activeUserId = localStorage.getItem(
-                    "mathmemo-active-user"
+                const activeUserId = storage.loadData(
+                    STORAGE_KEYS.ACTIVE_USER,
+                    null
                 );
-                if (activeUserId && parsedProfiles.length > 0) {
-                    const activeProfile = parsedProfiles.find(
+                if (activeUserId && storedProfiles.length > 0) {
+                    const activeProfile = storedProfiles.find(
                         (p) => p.id === activeUserId
                     );
                     if (activeProfile) {
@@ -57,7 +56,6 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 setError(null);
-                initializedRef.current = true;
             } catch (err) {
                 console.error(
                     "Erreur lors de l'initialisation de l'authentification:",
@@ -70,52 +68,26 @@ export const AuthProvider = ({ children }) => {
         };
 
         initializeAuth();
-    }, []);
+    }, [storage]);
 
-    // Utiliser une ref pour éviter les mises à jour infinies
-    const profilesRef = useRef(profiles);
-
-    // Sauvegarder les profils quand ils changent
+    // Sauvegarde des profils quand ils changent
     useEffect(() => {
-        // Ne mettre à jour que si les profils ont changé
-        if (JSON.stringify(profilesRef.current) !== JSON.stringify(profiles)) {
-            try {
-                localStorage.setItem(
-                    "mathmemo-profiles",
-                    JSON.stringify(profiles || [])
-                );
-                profilesRef.current = profiles;
-            } catch (err) {
-                console.error("Erreur de sauvegarde des profils:", err);
-            }
-        }
-    }, [profiles]);
+        if (!storage.isInitialized || loading) return;
+        storage.saveData(STORAGE_KEYS.PROFILES, profiles);
+    }, [storage, profiles, loading]);
 
-    // Utiliser une ref pour éviter les mises à jour infinies
-    const userIdRef = useRef(user?.id);
-
-    // Sauvegarder l'ID de l'utilisateur actif quand il change
+    // Sauvegarde de l'ID utilisateur actif quand il change
     useEffect(() => {
-        // Ne mettre à jour que si l'ID utilisateur a changé
-        if (userIdRef.current !== user?.id) {
-            try {
-                if (user && user.id) {
-                    localStorage.setItem("mathmemo-active-user", user.id);
-                } else if (!user) {
-                    localStorage.removeItem("mathmemo-active-user");
-                }
-                userIdRef.current = user?.id;
-            } catch (err) {
-                console.error(
-                    "Erreur de sauvegarde de l'ID utilisateur actif:",
-                    err
-                );
-            }
+        if (!storage.isInitialized || loading) return;
+        if (user && user.id) {
+            storage.saveData(STORAGE_KEYS.ACTIVE_USER, user.id);
+        } else if (!user) {
+            storage.removeData(STORAGE_KEYS.ACTIVE_USER);
         }
-    }, [user]);
+    }, [storage, user, loading]);
 
     /**
-     * Connecte l'utilisateur avec un profil existant
+     * Sélectionne un profil existant
      * @param {string} profileId - ID du profil
      * @returns {Object|null} Le profil sélectionné ou null
      */
@@ -162,7 +134,7 @@ export const AuthProvider = ({ children }) => {
                 id: `user-${Date.now()}`,
                 name: userData.name || "Élève",
                 avatar: userData.avatar || null,
-                level: userData.level || "cp",
+                level: userData.level || DIFFICULTY_LEVELS.CP,
                 preferences: userData.preferences || {
                     showTimer: true,
                     soundEffects: true,
@@ -277,24 +249,26 @@ export const AuthProvider = ({ children }) => {
     const logout = useCallback(() => {
         try {
             setUser(null);
-            localStorage.removeItem("mathmemo-active-user");
+            storage.removeData(STORAGE_KEYS.ACTIVE_USER);
             setError(null);
         } catch (err) {
             console.error("Erreur lors de la déconnexion:", err);
             setError("Erreur lors de la déconnexion: " + err.message);
         }
-    }, []);
+    }, [storage]);
 
     /**
      * Connecte l'utilisateur en tant qu'invité
+     * @param {string} level - Niveau de difficulté initial
+     * @returns {Object|null} Profil invité ou null
      */
-    const loginAsGuest = useCallback(() => {
+    const loginAsGuest = useCallback((level = DIFFICULTY_LEVELS.CP) => {
         try {
             const guestProfile = {
                 id: `guest-${Date.now()}`,
                 name: "Invité",
                 isGuest: true,
-                level: "cp",
+                level: level,
                 preferences: {
                     showTimer: true,
                     soundEffects: true,
@@ -342,3 +316,5 @@ export const AuthProvider = ({ children }) => {
 AuthProvider.propTypes = {
     children: PropTypes.node.isRequired,
 };
+
+export default AuthProvider;
