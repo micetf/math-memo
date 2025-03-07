@@ -18,7 +18,8 @@ const STORAGE_KEYS = {
  */
 export const AuthProvider = ({ children }) => {
     // Accès au contexte de stockage
-    const storage = useStorage();
+    const { isInitialized, loadData, saveData, removeData, profilesService } =
+        useStorage();
 
     // États
     const [profiles, setProfiles] = useState([]);
@@ -28,21 +29,37 @@ export const AuthProvider = ({ children }) => {
 
     // Initialisation au chargement
     useEffect(() => {
-        if (!storage.isInitialized) return;
+        if (!isInitialized) return;
 
         const initializeAuth = async () => {
             try {
                 setLoading(true);
 
-                // Charger tous les profils
-                const storedProfiles = await storage.loadData(
-                    STORAGE_KEYS.PROFILES,
-                    []
-                );
+                let storedProfiles = [];
+                // Essayer d'abord d'utiliser profilesService (IndexedDB)
+                if (profilesService) {
+                    try {
+                        storedProfiles = await profilesService.getAllProfiles();
+                    } catch (err) {
+                        console.warn(
+                            "Impossible d'utiliser profilesService, fallback vers loadData:",
+                            err
+                        );
+                        // Si ça échoue, utiliser loadData (qui gère IndexedDB ou localStorage selon le cas)
+                        storedProfiles = await loadData(
+                            STORAGE_KEYS.PROFILES,
+                            []
+                        );
+                    }
+                } else {
+                    // Utiliser loadData directement
+                    storedProfiles = await loadData(STORAGE_KEYS.PROFILES, []);
+                }
+
                 setProfiles(storedProfiles);
 
                 // Charger l'utilisateur actif
-                const activeUserId = await storage.loadData(
+                const activeUserId = await loadData(
                     STORAGE_KEYS.ACTIVE_USER,
                     null
                 );
@@ -68,15 +85,33 @@ export const AuthProvider = ({ children }) => {
         };
 
         initializeAuth();
-    }, [storage]);
+    }, [isInitialized, loadData, profilesService]);
 
     // Sauvegarde des profils quand ils changent
     useEffect(() => {
-        if (!storage.isInitialized || loading) return;
+        if (!isInitialized || loading) return;
 
         const saveProfiles = async () => {
             try {
-                await storage.saveData(STORAGE_KEYS.PROFILES, profiles);
+                // Essayer d'abord d'utiliser profilesService (IndexedDB)
+                if (profilesService) {
+                    try {
+                        // Mise à jour individuelle de chaque profil
+                        for (const profile of profiles) {
+                            await profilesService.saveProfile(profile);
+                        }
+                    } catch (err) {
+                        console.warn(
+                            "Impossible d'utiliser profilesService, fallback vers saveData:",
+                            err
+                        );
+                        // Fallback vers saveData
+                        await saveData(STORAGE_KEYS.PROFILES, profiles);
+                    }
+                } else {
+                    // Utiliser saveData directement
+                    await saveData(STORAGE_KEYS.PROFILES, profiles);
+                }
             } catch (error) {
                 console.error(
                     "Erreur lors de la sauvegarde des profils:",
@@ -89,18 +124,18 @@ export const AuthProvider = ({ children }) => {
         };
 
         saveProfiles();
-    }, [storage, profiles, loading]);
+    }, [isInitialized, loading, profiles, saveData, profilesService]);
 
     // Sauvegarde de l'ID utilisateur actif quand il change
     useEffect(() => {
-        if (!storage.isInitialized || loading) return;
+        if (!isInitialized || loading) return;
 
         const saveActiveUser = async () => {
             try {
                 if (user && user.id) {
-                    await storage.saveData(STORAGE_KEYS.ACTIVE_USER, user.id);
+                    await saveData(STORAGE_KEYS.ACTIVE_USER, user.id);
                 } else if (!user) {
-                    await storage.removeData(STORAGE_KEYS.ACTIVE_USER);
+                    await removeData(STORAGE_KEYS.ACTIVE_USER);
                 }
             } catch (error) {
                 console.error(
@@ -115,7 +150,7 @@ export const AuthProvider = ({ children }) => {
         };
 
         saveActiveUser();
-    }, [storage, user, loading]);
+    }, [isInitialized, loading, user, saveData, removeData]);
 
     /**
      * Sélectionne un profil existant
@@ -172,6 +207,7 @@ export const AuthProvider = ({ children }) => {
                     darkMode: false,
                 },
                 createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
             };
 
             // Mettre à jour l'état des profils
@@ -261,6 +297,20 @@ export const AuthProvider = ({ children }) => {
                 setProfiles((prevProfiles) =>
                     prevProfiles.filter((p) => p.id !== profileId)
                 );
+
+                // Supprimer également de IndexedDB si disponible
+                if (profilesService) {
+                    try {
+                        profilesService.deleteProfile(profileId);
+                    } catch (error) {
+                        console.warn(
+                            "Erreur lors de la suppression du profil dans IndexedDB:",
+                            error
+                        );
+                        // Continuer quand même car la suppression d'état est déjà faite
+                    }
+                }
+
                 setError(null);
                 return true;
             } catch (err) {
@@ -271,7 +321,7 @@ export const AuthProvider = ({ children }) => {
                 return false;
             }
         },
-        [user]
+        [user, profilesService]
     );
 
     /**
@@ -280,13 +330,13 @@ export const AuthProvider = ({ children }) => {
     const logout = useCallback(async () => {
         try {
             setUser(null);
-            await storage.removeData(STORAGE_KEYS.ACTIVE_USER);
+            await removeData(STORAGE_KEYS.ACTIVE_USER);
             setError(null);
         } catch (err) {
             console.error("Erreur lors de la déconnexion:", err);
             setError("Erreur lors de la déconnexion: " + err.message);
         }
-    }, [storage]);
+    }, [removeData]);
 
     /**
      * Connecte l'utilisateur en tant qu'invité
@@ -306,6 +356,7 @@ export const AuthProvider = ({ children }) => {
                     darkMode: false,
                 },
                 createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
             };
 
             setUser(guestProfile);
