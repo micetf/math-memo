@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useLocalStorage } from "./useLocalStorage";
-
+import { useStorage } from "../contexts";
 /**
  * Niveaux de connaissance pour l'algorithme de répétition espacée
  * @constant {Object}
@@ -57,11 +57,21 @@ export const useSpacedRepetition = (userId, progressionId) => {
         `Initialisation de useSpacedRepetition avec la clé: ${storageKey}`
     );
 
+    // Récupérer le contexte de stockage
+    const storage = useStorage();
+
     // Récupération des données stockées localement
     const [facts, setFacts] = useLocalStorage(storageKey, {});
 
     // État pour suivre les faits à réviser aujourd'hui
     const [factsToReview, setFactsToReview] = useState([]);
+
+    // Sauvegarder les faits quand ils sont modifiés
+    useEffect(() => {
+        if (storage.isInitialized) {
+            storage.saveData(storageKey, facts);
+        }
+    }, [facts, storage, storageKey]);
 
     // Debug
     useEffect(() => {

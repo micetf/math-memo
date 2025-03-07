@@ -1,17 +1,12 @@
-/**
- * @file ProgressProvider.jsx
- * @description Contexte pour gérer la progression des élèves - version corrigée
- */
-
-import { useState, useEffect, useContext, useCallback, useRef } from "react";
+// src/contexts/progress/ProgressProvider.jsx
+import { useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
-import AuthContext from "./AuthContext";
-import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../data/progressions";
-import ProgressContext from "./ProgressContext";
+import { useAuth, useStorage, ProgressContext } from "..";
 import {
     useSpacedRepetition,
     KNOWLEDGE_LEVELS,
-} from "../hooks/useSpacedRepetition";
+} from "../../hooks/useSpacedRepetition";
+import { PROGRESSIONS, DIFFICULTY_LEVELS } from "../../data/progressions";
 
 /**
  * Fournisseur de contexte pour gérer la progression de l'élève
@@ -20,11 +15,9 @@ import {
  * @returns {JSX.Element} Fournisseur ProgressContext
  */
 export const ProgressProvider = ({ children }) => {
-    const { user } = useContext(AuthContext);
-
-    // Utiliser une ref pour suivre les changements d'utilisateur ou de niveau
-    const prevUserRef = useRef(null);
-    const prevLevelRef = useRef(null);
+    const { user } = useAuth();
+    // eslint-disable-next-line no-unused-vars
+    const storage = useStorage();
 
     // État pour le niveau, la période et l'unité actifs
     const [currentLevel, setCurrentLevel] = useState(
@@ -32,28 +25,25 @@ export const ProgressProvider = ({ children }) => {
     );
     const [activePeriod, setActivePeriod] = useState(null);
     const [activeUnit, setActiveUnit] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-    // Utiliser l'ID de l'utilisateur pour le stockage des données de progression
-    const userId = user?.id || "guest";
+    // Références pour éviter des rendus inutiles
+    const initializedRef = useRef(false);
+    const initializedUnitsRef = useRef(new Set());
 
     // Synchroniser le niveau avec le profil utilisateur quand il change
     useEffect(() => {
-        // Vérifier si l'utilisateur ou le niveau a changé pour éviter les mises à jour inutiles
-        if (
-            user &&
-            user.level &&
-            user.level !== currentLevel &&
-            (prevUserRef.current !== user.id ||
-                prevLevelRef.current !== user.level)
-        ) {
+        if (user && user.level && user.level !== currentLevel) {
             console.log(
                 `Synchronisation du niveau avec le profil: ${user.level}`
             );
             setCurrentLevel(user.level);
-            prevUserRef.current = user.id;
-            prevLevelRef.current = user.level;
         }
     }, [user, currentLevel]);
+
+    // Utiliser l'ID de l'utilisateur pour le stockage des données de progression
+    const userId = user?.id || "guest";
 
     // Initialiser le hook de répétition espacée avec l'ID utilisateur et le niveau
     const {
@@ -66,99 +56,124 @@ export const ProgressProvider = ({ children }) => {
         getProgressStats,
     } = useSpacedRepetition(userId, currentLevel);
 
-    // Journalisation pour le débogage
-    const logOnceRef = useRef(false);
-    useEffect(() => {
-        // Limiter la journalisation pour éviter les boucles de mise à jour
-        if (!logOnceRef.current) {
-            console.log("ProgressProvider - État initial:", {
-                userId,
-                currentLevel,
-                activePeriodId: activePeriod?.id,
-                activeUnitId: activeUnit?.id,
-                factsCount: Object.keys(facts || {}).length,
-                factsToReviewCount: factsToReview?.length || 0,
-            });
-            logOnceRef.current = true;
-        }
-    }, [userId, currentLevel, activePeriod, activeUnit, facts, factsToReview]);
-
     // Mise à jour de la période et de l'unité actives lors du changement de niveau
-    // Utiliser une ref pour éviter de déclencher cet effet trop souvent
-    const levelInitializedRef = useRef(false);
     useEffect(() => {
         if (
+            !initializedRef.current &&
             currentLevel &&
-            PROGRESSIONS[currentLevel] &&
-            !levelInitializedRef.current
+            PROGRESSIONS[currentLevel]
         ) {
-            const firstPeriod = PROGRESSIONS[currentLevel].periods[0];
-            if (firstPeriod) {
-                console.log(
-                    `Sélection de la période par défaut: ${firstPeriod.name}`
-                );
-                setActivePeriod(firstPeriod);
+            setLoading(true);
 
-                const firstUnit = firstPeriod.units[0];
-                if (firstUnit) {
+            try {
+                const firstPeriod = PROGRESSIONS[currentLevel].periods[0];
+                if (firstPeriod) {
                     console.log(
-                        `Sélection de l'unité par défaut: ${firstUnit.name}`
+                        `Sélection de la période par défaut: ${firstPeriod.name}`
                     );
-                    setActiveUnit(firstUnit);
-                    levelInitializedRef.current = true;
+                    setActivePeriod(firstPeriod);
+
+                    const firstUnit = firstPeriod.units[0];
+                    if (firstUnit) {
+                        console.log(
+                            `Sélection de l'unité par défaut: ${firstUnit.name}`
+                        );
+                        setActiveUnit(firstUnit);
+                        initializedRef.current = true;
+                    }
                 }
+
+                setError(null);
+            } catch (err) {
+                console.error(
+                    `Erreur lors de l'initialisation du niveau ${currentLevel}:`,
+                    err
+                );
+                setError(
+                    `Erreur lors de l'initialisation du niveau: ${err.message}`
+                );
+            } finally {
+                setLoading(false);
             }
         }
     }, [currentLevel]);
 
-    // Fonction pour initialiser les faits numériques de l'unité active
-    // Utiliser une ref pour suivre les unités déjà initialisées
-    const initializedUnitsRef = useRef(new Set());
+    // Initialiser les faits numériques de l'unité active
     useEffect(() => {
         if (
+            !loading &&
             activeUnit &&
             activeUnit.facts &&
             activeUnit.facts.length > 0 &&
             !initializedUnitsRef.current.has(activeUnit.id)
         ) {
-            // Vérifier que les faits ne sont pas déjà ajoutés au système
-            const factsToAdd = activeUnit.facts.filter(
-                (fact) => !facts[fact.id]
-            );
-
-            if (factsToAdd.length > 0) {
-                console.log(
-                    `Ajout de ${factsToAdd.length} nouveaux faits de l'unité ${activeUnit.name}`
+            try {
+                // Vérifier que les faits ne sont pas déjà ajoutés au système
+                const factsToAdd = activeUnit.facts.filter(
+                    (fact) => !facts[fact.id]
                 );
-                addMultipleFacts(factsToAdd);
-                initializedUnitsRef.current.add(activeUnit.id);
+
+                if (factsToAdd.length > 0) {
+                    console.log(
+                        `Ajout de ${factsToAdd.length} nouveaux faits de l'unité ${activeUnit.name}`
+                    );
+                    addMultipleFacts(factsToAdd);
+                    initializedUnitsRef.current.add(activeUnit.id);
+                }
+            } catch (err) {
+                console.error(
+                    `Erreur lors de l'ajout des faits de l'unité ${activeUnit.name}:`,
+                    err
+                );
+                setError(`Erreur lors de l'ajout des faits: ${err.message}`);
             }
         }
-    }, [activeUnit, facts, addMultipleFacts]);
+    }, [activeUnit, facts, addMultipleFacts, loading]);
 
     /**
      * Change le niveau de difficulté actif
      * @param {string} level - Niveau de difficulté
+     * @returns {boolean} Succès de l'opération
      */
     const changeLevel = useCallback((level) => {
-        if (PROGRESSIONS[level]) {
+        try {
+            if (!PROGRESSIONS[level]) {
+                console.error(
+                    `Le niveau ${level} n'existe pas dans les progressions`
+                );
+                return false;
+            }
+
             console.log(`Changement de niveau vers: ${level}`);
+
             // Réinitialiser l'état d'initialisation
-            levelInitializedRef.current = false;
+            initializedRef.current = false;
+            initializedUnitsRef.current = new Set();
+
             setCurrentLevel(level);
-        } else {
+            return true;
+        } catch (err) {
             console.error(
-                `Le niveau ${level} n'existe pas dans les progressions`
+                `Erreur lors du changement de niveau vers ${level}:`,
+                err
             );
+            setError(`Erreur lors du changement de niveau: ${err.message}`);
+            return false;
         }
     }, []);
 
     /**
      * Change la période active
      * @param {Object} period - Période à activer
+     * @returns {boolean} Succès de l'opération
      */
     const changePeriod = useCallback((period) => {
-        if (period && period.units) {
+        try {
+            if (!period || !period.units) {
+                console.error("Période invalide ou sans unités");
+                return false;
+            }
+
             console.log(`Changement de période vers: ${period.name}`);
             setActivePeriod(period);
 
@@ -169,17 +184,34 @@ export const ProgressProvider = ({ children }) => {
                 );
                 setActiveUnit(period.units[0]);
             }
+
+            return true;
+        } catch (err) {
+            console.error(`Erreur lors du changement de période:`, err);
+            setError(`Erreur lors du changement de période: ${err.message}`);
+            return false;
         }
     }, []);
 
     /**
      * Change l'unité active
      * @param {Object} unit - Unité à activer
+     * @returns {boolean} Succès de l'opération
      */
     const changeUnit = useCallback((unit) => {
-        if (unit) {
+        try {
+            if (!unit) {
+                console.error("Unité invalide");
+                return false;
+            }
+
             console.log(`Changement d'unité vers: ${unit.name}`);
             setActiveUnit(unit);
+            return true;
+        } catch (err) {
+            console.error(`Erreur lors du changement d'unité:`, err);
+            setError(`Erreur lors du changement d'unité: ${err.message}`);
+            return false;
         }
     }, []);
 
@@ -264,6 +296,8 @@ export const ProgressProvider = ({ children }) => {
         currentLevel,
         activePeriod,
         activeUnit,
+        loading,
+        error,
         changeLevel,
         changePeriod,
         changeUnit,
@@ -290,3 +324,5 @@ export const ProgressProvider = ({ children }) => {
 ProgressProvider.propTypes = {
     children: PropTypes.node.isRequired,
 };
+
+export default ProgressProvider;

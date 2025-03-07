@@ -1,8 +1,4 @@
-/**
- * @file App.jsx
- * @description Composant principal de l'application - version simplifiée
- */
-
+// src/App.jsx
 import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AppProviders } from "./AppProviders";
@@ -12,6 +8,7 @@ import Exercise from "./pages/Exercise";
 import Progress from "./pages/Progress";
 import Settings from "./pages/Settings";
 import Profiles from "./pages/Profiles";
+import { Toast } from "./components/common/Toast";
 
 /**
  * Composant principal de l'application
@@ -47,6 +44,7 @@ const App = () => {
                     {/* Rediriger les routes inconnues vers l'accueil */}
                     <Route path="*" element={<Home />} />
                 </Routes>
+                <Toast />
             </Router>
         </AppProviders>
     );
