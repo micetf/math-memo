@@ -1,11 +1,7 @@
-/**
- * @file useSpacedRepetition.js
- * @description Hook personnalisé pour gérer la répétition espacée des faits numériques
- */
+// src/hooks/useSpacedRepetition.js
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useStorage } from "../contexts/storage";
 
-import { useState, useEffect, useCallback } from "react";
-import { useLocalStorage } from "./useLocalStorage";
-import { useStorage } from "../contexts";
 /**
  * Niveaux de connaissance pour l'algorithme de répétition espacée
  * @constant {Object}
@@ -45,33 +41,28 @@ const SUCCESS_THRESHOLD = {
  * @returns {Object} Fonctions et état pour gérer la répétition espacée
  */
 export const useSpacedRepetition = (userId, progressionId) => {
-    // Validation des entrées
-    const validUserId = userId || "guest";
-    const validProgressionId = progressionId || "default";
-
-    // Construction de la clé de stockage avec userId et progressionId
-    const storageKey = `spaced-rep-${validUserId}-${validProgressionId}`;
-
-    // Journalisation pour débogage
-    console.log(
-        `Initialisation de useSpacedRepetition avec la clé: ${storageKey}`
-    );
+    // Validation des entrées avec useMemo pour éviter des recalculs inutiles
+    const storageKey = useMemo(() => {
+        const validUserId = userId || "guest";
+        const validProgressionId = progressionId || "default";
+        return `spaced-rep-${validUserId}-${validProgressionId}`;
+    }, [userId, progressionId]);
 
     // Récupérer le contexte de stockage
     const storage = useStorage();
 
-    // Récupération des données stockées localement
-    const [facts, setFacts] = useLocalStorage(storageKey, {});
+    // État pour les faits et leur progression
+    const [facts, setFacts] = useState(() => storage.loadData(storageKey, {}));
 
-    // État pour suivre les faits à réviser aujourd'hui
+    // État pour les faits à réviser aujourd'hui
     const [factsToReview, setFactsToReview] = useState([]);
 
-    // Sauvegarder les faits quand ils sont modifiés
-    useEffect(() => {
-        if (storage.isInitialized) {
-            storage.saveData(storageKey, facts);
-        }
-    }, [facts, storage, storageKey]);
+    // États pour le chargement et les erreurs
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    // Référence pour éviter les rendus inutiles
+    const lastSavedFacts = useRef({});
 
     // Debug
     useEffect(() => {
@@ -82,6 +73,58 @@ export const useSpacedRepetition = (userId, progressionId) => {
         );
     }, [storageKey, facts]);
 
+    // ----- DÉBUT DES MÉTHODES DE STOCKAGE (À REMPLACER PAR INDEXEDDB) -----
+
+    /**
+     * Sauvegarde les faits dans le stockage
+     * @param {Object} updatedFacts - Faits à sauvegarder
+     * @returns {Promise<boolean>} - Succès de l'opération
+     * @todo Remplacer par une implémentation IndexedDB
+     */
+    const saveFacts = useCallback(
+        async (updatedFacts) => {
+            try {
+                // Notation "await" pour faciliter la transition vers IndexedDB
+                await Promise.resolve(
+                    storage.saveData(storageKey, updatedFacts)
+                );
+                return true;
+            } catch (err) {
+                console.error(
+                    `Erreur lors de la sauvegarde des faits pour ${storageKey}:`,
+                    err
+                );
+                setError(`Erreur de stockage: ${err.message}`);
+                return false;
+            }
+        },
+        [storage, storageKey]
+    );
+
+    /**
+     * Charge les faits depuis le stockage
+     * @returns {Promise<Object>} - Faits chargés
+     * @todo Remplacer par une implémentation IndexedDB
+     */
+    const loadFacts = useCallback(async () => {
+        try {
+            // Notation "await" pour faciliter la transition vers IndexedDB
+            const data = await Promise.resolve(
+                storage.loadData(storageKey, {})
+            );
+            return data;
+        } catch (err) {
+            console.error(
+                `Erreur lors du chargement des faits pour ${storageKey}:`,
+                err
+            );
+            setError(`Erreur de lecture: ${err.message}`);
+            return {};
+        }
+    }, [storage, storageKey]);
+
+    // ----- FIN DES MÉTHODES DE STOCKAGE -----
+
     /**
      * Fonction pour vérifier si un fait appartient au niveau actuel
      * @param {string} factId - ID du fait à vérifier
@@ -90,9 +133,9 @@ export const useSpacedRepetition = (userId, progressionId) => {
     const isFactFromCurrentLevel = useCallback(
         (factId) => {
             // Les IDs des faits commencent généralement par le code du niveau
-            return factId && factId.startsWith(validProgressionId);
+            return factId && factId.startsWith(progressionId);
         },
-        [validProgressionId]
+        [progressionId]
     );
 
     /**
@@ -120,31 +163,66 @@ export const useSpacedRepetition = (userId, progressionId) => {
         }
 
         return currentLevelFacts;
-    }, [facts, isFactFromCurrentLevel, setFacts, storageKey]);
+    }, [facts, isFactFromCurrentLevel, storageKey]);
 
-    // Exécuter un nettoyage initial
+    // Exécuter un nettoyage initial et charger les faits
     useEffect(() => {
-        cleanupInconsistentFacts();
-    }, [cleanupInconsistentFacts]);
+        if (!storage.isInitialized) return;
+
+        const initializeData = async () => {
+            setLoading(true);
+            try {
+                const loadedFacts = await loadFacts();
+                setFacts(loadedFacts);
+                setLoading(false);
+            } catch (err) {
+                console.error(
+                    "Erreur lors de l'initialisation des données:",
+                    err
+                );
+                setError("Erreur lors du chargement des données");
+                setLoading(false);
+            }
+        };
+
+        initializeData();
+    }, [storage.isInitialized, loadFacts]);
+
+    // Sauvegarder les faits lorsqu'ils changent (limité pour éviter les sauvegardes inutiles)
+    useEffect(() => {
+        if (!storage.isInitialized || loading) return;
+
+        // Vérifier si les faits ont réellement changé pour éviter les sauvegardes inutiles
+        const currentFactsStr = JSON.stringify(facts);
+        const lastFactsStr = JSON.stringify(lastSavedFacts.current);
+
+        if (currentFactsStr !== lastFactsStr) {
+            saveFacts(facts);
+            lastSavedFacts.current = { ...facts };
+        }
+    }, [facts, storage.isInitialized, loading, saveFacts]);
 
     /**
      * Crée ou met à jour un fait numérique dans la base de faits
      * @param {string} factId - Identifiant unique du fait (ex: "add-2-3")
      * @param {Object} factData - Données associées au fait
+     * @returns {Promise<boolean>} Succès de l'opération
      */
     const addFact = useCallback(
-        (factId, factData) => {
+        async (factId, factData) => {
             if (!factId) {
                 console.error("Cannot add fact: factId is required");
-                return;
+                setError("Identifiant de fait requis");
+                return false;
             }
 
             // Vérifier que le fait appartient au niveau actuel
             if (!isFactFromCurrentLevel(factId)) {
                 console.warn(
-                    `Tentative d'ajout d'un fait de niveau incorrect: ${factId} pour le niveau ${validProgressionId}`
+                    `Tentative d'ajout d'un fait de niveau incorrect: ${factId} pour le niveau ${progressionId}`
                 );
-                return;
+                setError(`Fait de niveau incorrect: ${factId}`);
+                return false;
             }
 
             setFacts((prev) => {
@@ -153,7 +231,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
                     return prev;
                 }
 
-                return {
+                const newFacts = {
                     ...prev,
                     [factId]: {
                         id: factId,
@@ -165,22 +243,28 @@ export const useSpacedRepetition = (userId, progressionId) => {
                         ...factData,
                     },
                 };
+
+                return newFacts;
             });
+
+            return true;
         },
-        [setFacts, isFactFromCurrentLevel, validProgressionId]
+        [isFactFromCurrentLevel, progressionId]
     );
 
     /**
      * Ajoute plusieurs faits numériques en même temps
      * @param {Array<Object>} factsArray - Tableau d'objets de faits
+     * @returns {Promise<boolean>} Succès de l'opération
      */
     const addMultipleFacts = useCallback(
-        (factsArray) => {
+        async (factsArray) => {
             if (!Array.isArray(factsArray) || factsArray.length === 0) {
                 console.error(
                     "Cannot add facts: factsArray must be a non-empty array"
                 );
-                return;
+                setError("Le tableau de faits est vide ou invalide");
+                return false;
             }
 
             setFacts((prev) => {
@@ -217,10 +301,12 @@ export const useSpacedRepetition = (userId, progressionId) => {
                 console.log(
                     `${factsAdded} nouveaux faits ajoutés pour ${storageKey}`
                 );
-                return newFacts;
+                return factsAdded > 0 ? newFacts : prev;
             });
+
+            return true;
         },
-        [setFacts, isFactFromCurrentLevel, storageKey]
+        [isFactFromCurrentLevel, storageKey]
     );
 
     /**
@@ -228,15 +314,19 @@ export const useSpacedRepetition = (userId, progressionId) => {
      * @param {string} factId - Identifiant du fait
      * @param {boolean} isCorrect - Si la réponse était correcte
      * @param {number} responseTime - Temps de réponse en secondes (optionnel)
+     * @returns {Promise<Object|null>} Fait mis à jour ou null en cas d'erreur
      */
     const updateFactProgress = useCallback(
-        (factId, isCorrect, responseTime = null) => {
+        async (factId, isCorrect, responseTime = null) => {
             if (!factId) {
                 console.error(
                     "Cannot update fact progress: factId is required"
                 );
-                return;
+                setError("Identifiant de fait requis pour la mise à jour");
+                return null;
             }
+
+            let updatedFact = null;
 
             setFacts((prev) => {
                 const fact = prev[factId];
@@ -274,35 +364,40 @@ export const useSpacedRepetition = (userId, progressionId) => {
                     } -> ${newLevel}, prochaine révision: ${nextReviewDate.toLocaleDateString()}`
                 );
 
-                // Mise à jour du fait
+                // Création du fait mis à jour
+                updatedFact = {
+                    ...fact,
+                    level: newLevel,
+                    successCount,
+                    lastReviewed: now.toISOString(),
+                    nextReview: nextReviewDate.toISOString(),
+                    history: [
+                        ...fact.history,
+                        {
+                            date: now.toISOString(),
+                            isCorrect,
+                            responseTime: responseTime || 0,
+                        },
+                    ],
+                };
+
+                // Retourner les faits mis à jour
                 return {
                     ...prev,
-                    [factId]: {
-                        ...fact,
-                        level: newLevel,
-                        successCount,
-                        lastReviewed: now.toISOString(),
-                        nextReview: nextReviewDate.toISOString(),
-                        history: [
-                            ...fact.history,
-                            {
-                                date: now.toISOString(),
-                                isCorrect,
-                                responseTime: responseTime || 0,
-                            },
-                        ],
-                    },
+                    [factId]: updatedFact,
                 };
             });
+
+            return updatedFact;
         },
-        [setFacts]
+        []
     );
 
     /**
      * Récupère les faits qui doivent être révisés aujourd'hui
-     * @returns {Array} Liste des faits à réviser
+     * @returns {Promise<Array>} Liste des faits à réviser
      */
-    const getFactsToReviewToday = useCallback(() => {
+    const getFactsToReviewToday = useCallback(async () => {
         const now = new Date();
         const currentLevelFacts = cleanupInconsistentFacts();
 
@@ -323,9 +418,9 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
     /**
      * Récupère des statistiques sur la progression de l'apprentissage
-     * @returns {Object} Statistiques
+     * @returns {Promise<Object>} Statistiques
      */
-    const getProgressStats = useCallback(() => {
+    const getProgressStats = useCallback(async () => {
         const currentLevelFacts = cleanupInconsistentFacts();
         const totalFacts = Object.keys(currentLevelFacts).length;
 
@@ -343,7 +438,7 @@ export const useSpacedRepetition = (userId, progressionId) => {
         });
 
         // Récupérer les faits à réviser aujourd'hui
-        const factsToReview = getFactsToReviewToday();
+        const factsToReview = await getFactsToReviewToday();
 
         return {
             totalFacts,
@@ -362,13 +457,28 @@ export const useSpacedRepetition = (userId, progressionId) => {
 
     // Mise à jour des faits à réviser au chargement et lorsque les faits changent
     useEffect(() => {
-        const toReview = getFactsToReviewToday();
-        setFactsToReview(toReview);
-    }, [facts, getFactsToReviewToday]);
+        if (!storage.isInitialized || loading) return;
+
+        const updateFactsToReview = async () => {
+            try {
+                const toReview = await getFactsToReviewToday();
+                setFactsToReview(toReview);
+            } catch (err) {
+                console.error(
+                    "Erreur lors de la mise à jour des faits à réviser:",
+                    err
+                );
+            }
+        };
+
+        updateFactsToReview();
+    }, [facts, getFactsToReviewToday, storage.isInitialized, loading]);
 
     return {
         facts,
         factsToReview,
+        loading,
+        error,
         addFact,
         addMultipleFacts,
         updateFactProgress,
