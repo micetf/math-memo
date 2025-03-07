@@ -1,5 +1,5 @@
 // src/hooks/useAppSettings.js
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useAuth, useUI } from "../contexts";
 
 /**
@@ -80,10 +80,40 @@ export const useAppSettings = () => {
         };
     }, [darkMode, soundEffects, showTimer, getUIPreferences, user]);
 
+    /**
+     * État mémorisé des préférences actuelles
+     * Évite de recalculer cet objet à chaque rendu
+     */
+    const currentPreferences = useMemo(
+        () => ({
+            darkMode,
+            soundEffects,
+            showTimer,
+        }),
+        [darkMode, soundEffects, showTimer]
+    );
+
+    /**
+     * Détecte si les préférences UI sont synchronisées avec le profil utilisateur
+     * Utile pour afficher des avertissements ou des suggestions de synchronisation
+     */
+    const preferencesInSync = useMemo(() => {
+        if (!user || user.isGuest) return true;
+
+        const userPrefs = user.preferences || {};
+        return (
+            userPrefs.darkMode === darkMode &&
+            userPrefs.soundEffects === soundEffects &&
+            userPrefs.showTimer === showTimer
+        );
+    }, [user, darkMode, soundEffects, showTimer]);
+
     return {
-        darkMode,
-        soundEffects,
-        showTimer,
+        // États mémorisés
+        ...currentPreferences,
+        preferencesInSync,
+
+        // Fonctions
         updateUserPreferences,
         getAllPreferences,
     };

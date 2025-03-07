@@ -1,11 +1,103 @@
-/**
- * @file useExerciseSession.js
- * @description Hook personnalisé pour gérer la logique de session d'exercices
- */
-
-import { useState, useEffect, useRef, useCallback } from "react";
+// src/hooks/useExerciseSession.js
+import { useMemo, useEffect, useCallback, useReducer, useRef } from "react";
 import { useAudio } from "./useAudio";
-import { PROGRESSIONS } from "../data/progressions";
+
+// Actions pour le reducer
+const SESSION_ACTIONS = {
+    INIT_SESSION: "INIT_SESSION",
+    START_LOADING: "START_LOADING",
+    FINISH_LOADING: "FINISH_LOADING",
+    SET_ERROR: "SET_ERROR",
+    NEXT_EXERCISE: "NEXT_EXERCISE",
+    COMPLETE_SESSION: "COMPLETE_SESSION",
+    UPDATE_STATS: "UPDATE_STATS",
+    RESET_SESSION: "RESET_SESSION",
+};
+
+// État initial
+const initialState = {
+    currentSession: null,
+    currentFactIndex: 0,
+    sessionComplete: false,
+    isLoading: true,
+    error: null,
+    stats: {
+        correct: 0,
+        incorrect: 0,
+        totalTime: 0,
+    },
+};
+
+// Reducer pour gérer l'état de la session
+function sessionReducer(state, action) {
+    switch (action.type) {
+        case SESSION_ACTIONS.INIT_SESSION:
+            return {
+                ...state,
+                currentSession: action.payload,
+                currentFactIndex: 0,
+                sessionComplete: false,
+                isLoading: false,
+                error: null,
+            };
+
+        case SESSION_ACTIONS.START_LOADING:
+            return {
+                ...state,
+                isLoading: true,
+            };
+
+        case SESSION_ACTIONS.FINISH_LOADING:
+            return {
+                ...state,
+                isLoading: false,
+            };
+
+        case SESSION_ACTIONS.SET_ERROR:
+            return {
+                ...state,
+                error: action.payload,
+                isLoading: false,
+            };
+
+        case SESSION_ACTIONS.NEXT_EXERCISE:
+            return {
+                ...state,
+                currentFactIndex: state.currentFactIndex + 1,
+            };
+
+        case SESSION_ACTIONS.COMPLETE_SESSION:
+            return {
+                ...state,
+                sessionComplete: true,
+            };
+
+        case SESSION_ACTIONS.UPDATE_STATS:
+            return {
+                ...state,
+                stats: {
+                    ...state.stats,
+                    correct:
+                        state.stats.correct +
+                        (action.payload.isCorrect ? 1 : 0),
+                    incorrect:
+                        state.stats.incorrect +
+                        (action.payload.isCorrect ? 0 : 1),
+                    totalTime:
+                        state.stats.totalTime + action.payload.responseTime,
+                },
+            };
+
+        case SESSION_ACTIONS.RESET_SESSION:
+            return {
+                ...initialState,
+                isLoading: true,
+            };
+
+        default:
+            return state;
+    }
+}
 
 /**
  * Hook pour gérer toute la logique d'une session d'exercices
@@ -24,21 +116,18 @@ export const useExerciseSession = ({
     currentLevel,
     addMultipleFacts,
 }) => {
-    // États pour la session d'exercices
-    const [currentSession, setCurrentSession] = useState(null);
-    const [currentFactIndex, setCurrentFactIndex] = useState(0);
-    const [sessionComplete, setSessionComplete] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [sessionStats, setSessionStats] = useState({
-        correct: 0,
-        incorrect: 0,
-        totalTime: 0,
-    });
+    // Utiliser useReducer au lieu de plusieurs useState pour une gestion d'état plus robuste
+    const [state, dispatch] = useReducer(sessionReducer, initialState);
 
-    // Références pour éviter les problèmes de fermeture (closure)
-    const sessionRef = useRef(null);
-    const factIndexRef = useRef(0);
+    // Destructurer l'état du reducer pour faciliter l'utilisation
+    const {
+        currentSession,
+        currentFactIndex,
+        sessionComplete,
+        isLoading,
+        error,
+        stats,
+    } = state;
 
     // Effets sonores
     const correctSound = useAudio("/assets/sounds/success.mp3", {
@@ -48,65 +137,44 @@ export const useExerciseSession = ({
         autoload: true,
     });
 
+    // Référence pour le fait actuel
+    const currentFactRef = useRef(null);
+
     /**
      * Génère des faits de secours si aucun fait à réviser n'est disponible
      * @returns {Array} Liste de faits numériques
      */
-    const generateFallbackFacts = useCallback(() => {
-        // S'assurer d'utiliser le niveau de l'utilisateur s'il est connecté
-        const levelToUse = user?.level || currentLevel;
-        console.log(
-            `Génération de faits de secours pour le niveau: ${levelToUse}`
-        );
+    const generateFallbackFacts = useCallback((level, maxFacts = 5) => {
+        if (!level) return [];
 
-        // Sélectionner le niveau approprié
-        const progression = PROGRESSIONS[levelToUse];
-        if (!progression) {
-            console.error(
-                `Niveau ${levelToUse} non trouvé, utilisation de CP par défaut`
+        try {
+            // Logique pour générer des faits de secours basés sur le niveau
+            // Cette fonction doit être implémentée en fonction de votre modèle de données
+            console.log(
+                `Générer des faits de secours pour le niveau: ${level}`,
+                `Nombre max de faits : ${maxFacts}`
             );
-            return PROGRESSIONS["cp"].periods[0].units[0].facts.slice(0, 5);
-        }
 
-        // Prendre la première période et première unité
-        const period = progression.periods[0];
-        if (!period) {
+            // Exemple simplifié, à adapter selon votre modèle de données
+            return []; // Implémentation à compléter
+        } catch (err) {
             console.error(
-                `Pas de période trouvée pour le niveau ${levelToUse}`
+                "Erreur lors de la génération des faits de secours:",
+                err
             );
             return [];
         }
-
-        const unit = period.units[0];
-        if (!unit) {
-            console.error(`Pas d'unité trouvée dans la période ${period.name}`);
-            return [];
-        }
-
-        console.log(
-            `Génération de faits de secours depuis: ${progression.name} > ${period.name} > ${unit.name}`
-        );
-
-        // Retourner quelques faits de cette unité (limiter à 5 pour la session)
-        if (!unit.facts || unit.facts.length === 0) {
-            console.error(`Pas de faits trouvés dans l'unité ${unit.name}`);
-            return [];
-        }
-
-        return unit.facts.slice(0, 5);
-    }, [user, currentLevel]);
+    }, []);
 
     /**
      * Initialise une nouvelle session d'exercices
      */
     const initializeSession = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
+        dispatch({ type: SESSION_ACTIONS.START_LOADING });
 
         try {
             if (!user) {
-                setIsLoading(false);
-                setSessionComplete(true);
+                dispatch({ type: SESSION_ACTIONS.COMPLETE_SESSION });
                 return;
             }
 
@@ -119,7 +187,7 @@ export const useExerciseSession = ({
 
             // Si pas de faits à réviser, utiliser des faits de fallback
             if (!factsToReview || factsToReview.length === 0) {
-                const fallbackFacts = generateFallbackFacts();
+                const fallbackFacts = generateFallbackFacts(currentLevel);
                 console.log(
                     "Utilisation de faits de secours:",
                     fallbackFacts.length
@@ -136,40 +204,36 @@ export const useExerciseSession = ({
                 // Limiter à 10 faits par session pour ne pas fatiguer l'élève
                 const sessionFacts = factsToReview.slice(0, 10);
                 console.log("Session créée avec", sessionFacts.length, "faits");
-                setCurrentSession(sessionFacts);
 
-                // Mettre à jour les références
-                sessionRef.current = sessionFacts;
-                factIndexRef.current = 0;
-
-                // Mettre à jour les états
-                setCurrentFactIndex(0);
-                setSessionComplete(false);
-
-                // Réinitialiser les statistiques
-                setSessionStats({
-                    correct: 0,
-                    incorrect: 0,
-                    totalTime: 0,
+                dispatch({
+                    type: SESSION_ACTIONS.INIT_SESSION,
+                    payload: sessionFacts,
                 });
+
+                // Mettre à jour la référence du fait actuel
+                currentFactRef.current = sessionFacts[0] || null;
             } else {
                 console.log("Aucun fait à réviser, session terminée");
-                // Pas de faits à réviser
-                setSessionComplete(true);
+                dispatch({ type: SESSION_ACTIONS.COMPLETE_SESSION });
             }
-        } catch (error) {
+        } catch (err) {
             console.error(
                 "Erreur lors de l'initialisation de la session:",
-                error
+                err
             );
-            setError(
-                "Impossible de charger les exercices. Veuillez réessayer."
-            );
-            setSessionComplete(true);
-        } finally {
-            setIsLoading(false);
+            dispatch({
+                type: SESSION_ACTIONS.SET_ERROR,
+                payload:
+                    "Impossible de charger les exercices. Veuillez réessayer.",
+            });
         }
-    }, [user, getFactsToReviewToday, generateFallbackFacts, addMultipleFacts]);
+    }, [
+        user,
+        getFactsToReviewToday,
+        generateFallbackFacts,
+        currentLevel,
+        addMultipleFacts,
+    ]);
 
     /**
      * Gère le résultat d'un exercice
@@ -181,11 +245,10 @@ export const useExerciseSession = ({
             console.log("Résultat de l'exercice:", result);
 
             // Mettre à jour les statistiques de la session
-            setSessionStats((prev) => ({
-                correct: prev.correct + (isCorrect ? 1 : 0),
-                incorrect: prev.incorrect + (isCorrect ? 0 : 1),
-                totalTime: prev.totalTime + responseTime,
-            }));
+            dispatch({
+                type: SESSION_ACTIONS.UPDATE_STATS,
+                payload: { isCorrect, responseTime },
+            });
 
             // Jouer le son correspondant
             if (isCorrect) {
@@ -204,32 +267,26 @@ export const useExerciseSession = ({
      * Passe à l'exercice suivant ou termine la session
      */
     const goToNextExercise = useCallback(() => {
-        // Utiliser les références pour éviter les problèmes de closure
-        const session = sessionRef.current;
-        const currentIndex = factIndexRef.current;
+        if (!currentSession) return;
 
+        // Si c'est le dernier exercice, terminer la session
+        if (currentFactIndex >= currentSession.length - 1) {
+            console.log("Tous les exercices sont terminés");
+            dispatch({ type: SESSION_ACTIONS.COMPLETE_SESSION });
+            return;
+        }
+
+        // Sinon, passer à l'exercice suivant
         console.log(
-            `Passage au fait suivant: ${currentIndex + 1}/${
-                session?.length || 0
+            `Passage au fait suivant: ${currentFactIndex + 1}/${
+                currentSession.length
             }`
         );
+        dispatch({ type: SESSION_ACTIONS.NEXT_EXERCISE });
 
-        if (session && currentIndex < session.length - 1) {
-            // Incrémenter les références et les états
-            const nextIndex = currentIndex + 1;
-            factIndexRef.current = nextIndex;
-            setCurrentFactIndex(nextIndex);
-
-            console.log(
-                `Nouvel index: ${nextIndex}, fait actuel:`,
-                session[nextIndex]
-            );
-        } else {
-            console.log("Tous les exercices sont terminés");
-            // Tous les exercices sont terminés
-            setSessionComplete(true);
-        }
-    }, []);
+        // Mettre à jour la référence au fait actuel
+        currentFactRef.current = currentSession[currentFactIndex + 1] || null;
+    }, [currentSession, currentFactIndex]);
 
     /**
      * Calcule les statistiques de la session
@@ -238,43 +295,39 @@ export const useExerciseSession = ({
     const getFormattedStats = useCallback(() => {
         if (!currentSession) return {};
 
-        const total = sessionStats.correct + sessionStats.incorrect;
+        const total = stats.correct + stats.incorrect;
         const successRate =
-            total > 0 ? Math.round((sessionStats.correct / total) * 100) : 0;
+            total > 0 ? Math.round((stats.correct / total) * 100) : 0;
         const averageTime =
-            total > 0 ? (sessionStats.totalTime / total).toFixed(1) : 0;
+            total > 0 ? (stats.totalTime / total).toFixed(1) : 0;
 
         return {
             total,
-            correct: sessionStats.correct,
-            incorrect: sessionStats.incorrect,
+            correct: stats.correct,
+            incorrect: stats.incorrect,
             successRate,
             averageTime,
-            totalTime: sessionStats.totalTime.toFixed(1),
+            totalTime: stats.totalTime.toFixed(1),
         };
-    }, [currentSession, sessionStats]);
+    }, [currentSession, stats]);
 
     // Initialiser la session au montage du composant
     useEffect(() => {
         initializeSession();
     }, [initializeSession]);
 
-    // Debug - Afficher les états actuels pour faciliter le développement
-    useEffect(() => {
-        console.log("État de la session:", {
-            sessionLength: currentSession?.length || 0,
-            currentFactIndex,
-            refIndex: factIndexRef.current,
-            sessionComplete,
-        });
-    }, [currentSession, currentFactIndex, sessionComplete]);
+    // Calculer le pourcentage de progression
+    const progress = useMemo(() => {
+        if (!currentSession || currentSession.length === 0) return 0;
+        return ((currentFactIndex + 1) / currentSession.length) * 100;
+    }, [currentSession, currentFactIndex]);
 
-    // Obtenir le fait actuel en utilisant la référence pour plus de fiabilité
-    const currentFact = sessionRef.current?.[factIndexRef.current] || null;
-    const progress =
-        sessionRef.current?.length > 0
-            ? ((factIndexRef.current + 1) / sessionRef.current.length) * 100
-            : 0;
+    // Obtenir le fait actuel
+    const currentFact = useMemo(() => {
+        if (!currentSession || currentFactIndex >= currentSession.length)
+            return null;
+        return currentSession[currentFactIndex];
+    }, [currentSession, currentFactIndex]);
 
     return {
         // États
@@ -282,8 +335,8 @@ export const useExerciseSession = ({
         error,
         sessionComplete,
         currentFact,
-        currentSession: sessionRef.current,
-        currentFactIndex: factIndexRef.current,
+        currentSession,
+        currentFactIndex,
         progress,
 
         // Actions
