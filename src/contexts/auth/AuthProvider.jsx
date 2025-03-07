@@ -30,19 +30,19 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         if (!storage.isInitialized) return;
 
-        const initializeAuth = () => {
+        const initializeAuth = async () => {
             try {
                 setLoading(true);
 
                 // Charger tous les profils
-                const storedProfiles = storage.loadData(
+                const storedProfiles = await storage.loadData(
                     STORAGE_KEYS.PROFILES,
                     []
                 );
                 setProfiles(storedProfiles);
 
                 // Charger l'utilisateur actif
-                const activeUserId = storage.loadData(
+                const activeUserId = await storage.loadData(
                     STORAGE_KEYS.ACTIVE_USER,
                     null
                 );
@@ -73,17 +73,48 @@ export const AuthProvider = ({ children }) => {
     // Sauvegarde des profils quand ils changent
     useEffect(() => {
         if (!storage.isInitialized || loading) return;
-        storage.saveData(STORAGE_KEYS.PROFILES, profiles);
+
+        const saveProfiles = async () => {
+            try {
+                await storage.saveData(STORAGE_KEYS.PROFILES, profiles);
+            } catch (error) {
+                console.error(
+                    "Erreur lors de la sauvegarde des profils:",
+                    error
+                );
+                setError(
+                    "Erreur lors de la sauvegarde des profils: " + error.message
+                );
+            }
+        };
+
+        saveProfiles();
     }, [storage, profiles, loading]);
 
     // Sauvegarde de l'ID utilisateur actif quand il change
     useEffect(() => {
         if (!storage.isInitialized || loading) return;
-        if (user && user.id) {
-            storage.saveData(STORAGE_KEYS.ACTIVE_USER, user.id);
-        } else if (!user) {
-            storage.removeData(STORAGE_KEYS.ACTIVE_USER);
-        }
+
+        const saveActiveUser = async () => {
+            try {
+                if (user && user.id) {
+                    await storage.saveData(STORAGE_KEYS.ACTIVE_USER, user.id);
+                } else if (!user) {
+                    await storage.removeData(STORAGE_KEYS.ACTIVE_USER);
+                }
+            } catch (error) {
+                console.error(
+                    "Erreur lors de la sauvegarde de l'utilisateur actif:",
+                    error
+                );
+                setError(
+                    "Erreur lors de la sauvegarde de l'utilisateur actif: " +
+                        error.message
+                );
+            }
+        };
+
+        saveActiveUser();
     }, [storage, user, loading]);
 
     /**
@@ -246,10 +277,10 @@ export const AuthProvider = ({ children }) => {
     /**
      * Déconnecte l'utilisateur actif
      */
-    const logout = useCallback(() => {
+    const logout = useCallback(async () => {
         try {
             setUser(null);
-            storage.removeData(STORAGE_KEYS.ACTIVE_USER);
+            await storage.removeData(STORAGE_KEYS.ACTIVE_USER);
             setError(null);
         } catch (err) {
             console.error("Erreur lors de la déconnexion:", err);

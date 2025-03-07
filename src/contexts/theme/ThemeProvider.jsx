@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import ThemeContext from "./ThemeContext";
-import { useStorage } from "../storage"; // Import via barrel
+import { useStorage } from "../storage";
 
 /**
  * Fournisseur de contexte pour gérer le thème de l'application
@@ -13,22 +13,6 @@ import { useStorage } from "../storage"; // Import via barrel
 export const ThemeProvider = ({ children }) => {
     const storage = useStorage();
     const [theme, setTheme] = useState("light");
-
-    // Charger le thème stocké lors de l'initialisation
-    useEffect(() => {
-        if (storage.isInitialized) {
-            const storedTheme = storage.loadData("mathmemo-theme", "light");
-            setTheme(storedTheme);
-            applyTheme(storedTheme);
-        }
-    }, [applyTheme, storage]);
-
-    // Sauvegarder le thème lorsqu'il change
-    useEffect(() => {
-        if (storage.isInitialized) {
-            storage.saveData("mathmemo-theme", theme);
-        }
-    }, [theme, storage]);
 
     /**
      * Applique le thème au document
@@ -41,6 +25,49 @@ export const ThemeProvider = ({ children }) => {
             document.documentElement.classList.remove("dark");
         }
     }, []);
+
+    // Charger le thème stocké lors de l'initialisation
+    useEffect(() => {
+        const loadTheme = async () => {
+            if (storage.isInitialized) {
+                try {
+                    // Utiliser await pour résoudre la Promise
+                    const storedTheme = await storage.loadData(
+                        "mathmemo-theme",
+                        "light"
+                    );
+                    setTheme(storedTheme);
+                    applyTheme(storedTheme);
+                } catch (error) {
+                    console.error("Erreur lors du chargement du thème:", error);
+                    // En cas d'erreur, utiliser le thème par défaut
+                    setTheme("light");
+                    applyTheme("light");
+                }
+            }
+        };
+
+        loadTheme();
+    }, [storage, applyTheme]);
+
+    // Sauvegarder le thème lorsqu'il change
+    useEffect(() => {
+        const saveTheme = async () => {
+            if (storage.isInitialized) {
+                try {
+                    // Utiliser await pour résoudre la Promise
+                    await storage.saveData("mathmemo-theme", theme);
+                } catch (error) {
+                    console.error(
+                        "Erreur lors de la sauvegarde du thème:",
+                        error
+                    );
+                }
+            }
+        };
+
+        saveTheme();
+    }, [theme, storage]);
 
     /**
      * Définit un nouveau thème

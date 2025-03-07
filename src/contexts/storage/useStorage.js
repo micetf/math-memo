@@ -3,7 +3,7 @@ import { useContext } from "react";
 import StorageContext from "./StorageContext";
 
 /**
- * Hook pour utiliser le contexte de stockage
+ * Hook pour utiliser le contexte de stockage avec IndexedDB
  * @returns {Object} Contexte de stockage
  */
 export const useStorage = () => {
